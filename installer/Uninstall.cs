@@ -25,6 +25,15 @@ namespace CrestUninstall
             Application.EnableVisualStyles();
 
             string dir = Path.GetDirectoryName(Path.GetFullPath(Assembly.GetExecutingAssembly().Location));
+            // Only ever empty the folder Setup installs to, so a copy of this file run from anywhere else
+            // (Downloads, the desktop) cannot delete that folder's contents.
+            string expected = Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Crest"));
+            if (!dir.TrimEnd('\\').Equals(expected.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+            {
+                if (!quiet) MessageBox.Show("This uninstaller only works from Crest's install folder:\n" + expected +
+                    "\n\nUse Settings > Apps > Installed apps > Crest > Uninstall instead.", "Uninstall Crest", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return 1;
+            }
             bool removeData = false;
             if (!quiet)
             {

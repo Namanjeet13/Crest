@@ -433,6 +433,79 @@ public sealed class MediaService
         };
     }
 
+    public bool StartingSpotify { get; private set; }
+
+    /// <summary>
+    /// Nothing is playing: open Spotify out of sight and resume whatever it had last.
+    /// True once Spotify is playing.
+    /// </summary>
+    public async Task<bool> ResumeSpotifyAsync()
+    {
+        if (StartingSpotify || _manager == null) return false;
+        StartingSpotify = true;
+        IntPtr focus = SpotifyStarter.Foreground;
+        try
+        {
+            bool launched = false;
+            if (!SpotifyStarter.IsRunning)
+            {
+                if (!SpotifyStarter.Start()) return false;
+                launched = true;
+            }
+            // Spotify takes a few seconds to load the last song and show up in Windows' media controls.
+            var until = DateTime.Now.AddSeconds(30);
+            DateTime nextPress = DateTime.MinValue;
+            while (DateTime.Now < until)
+            {
+                if (launched) SpotifyStarter.PutAway(focus);
+                var s = FindSpotify();
+                if (s != null)
+                {
+                    var info = s.GetPlaybackInfo();
+                    if (info?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                    {
+                        Rebind();
+                        if (launched)
+                        {
+                            // Its window can still pop up a moment after it starts.
+                            for (int i = 0; i < 6; i++) { await Task.Delay(500); SpotifyStarter.PutAway(focus); }
+                        }
+                        return true;
+                    }
+                    // Press as soon as the session appears and keep pressing: Spotify often ignores
+                    // the first few while it is still loading the last song. Play never toggles, so repeats are safe.
+                    if (DateTime.Now >= nextPress)
+                    {
+                        try { await s.TryPlayAsync(); } catch { }
+                        nextPress = DateTime.Now.AddMilliseconds(150);
+                    }
+                }
+                await Task.Delay(100);
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            App.Log(ex);
+            return false;
+        }
+        finally
+        {
+            StartingSpotify = false;
+        }
+    }
+
+    private GlobalSystemMediaTransportControlsSession? FindSpotify()
+    {
+        try
+        {
+            foreach (var s in _manager!.GetSessions())
+                if ((s.SourceAppUserModelId ?? "").Contains("spotify", StringComparison.OrdinalIgnoreCase)) return s;
+        }
+        catch { }
+        return null;
+    }
+
     public async void TogglePlay()
     {
         try { if (_session != null) await _session.TryTogglePlayPauseAsync(); } catch { }

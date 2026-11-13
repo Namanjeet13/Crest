@@ -12,6 +12,15 @@ public sealed class Settings
     /// <summary>"Notch" hangs from the top edge; "Island" floats just below it.</summary>
     public string Style { get; set; } = "Notch";
     public bool HideUntilHover { get; set; }
+    /// <summary>A little pixel cat that wanders the island when nothing is happening.</summary>
+    public bool PixelPet { get; set; } = true;
+    /// <summary>"Large" (the island grows a little to fit it) or "Small" (fits the usual island).</summary>
+    public string PetSize { get; set; } = "Large";
+    /// <summary>"Cat", "Dog" or "Bunny", and which look of it (see PixelPet.Looks).</summary>
+    public string PetKind { get; set; } = "Cat";
+    public string PetLook { get; set; } = "Cream";
+    /// <summary>"Left" or "Right": the corner of the island it sits in.</summary>
+    public string PetCorner { get; set; } = "Left";
     public bool StartWithWindows { get; set; }
     public bool HideInFullscreen { get; set; } = true;
     public bool OpenOnClickOnly { get; set; }
@@ -21,6 +30,8 @@ public sealed class Settings
 
     // ── Island ──
     public int IslandOffset { get; set; } = 8;
+    /// <summary>How far the island was dragged from the middle of the screen, in DIPs. 0 = centred.</summary>
+    public double IslandX { get; set; }
     public int IdleWidth { get; set; } = 190;
     public int IdleHeight { get; set; } = 32;
     public int MusicWidth { get; set; } = 320;
@@ -108,6 +119,12 @@ public sealed class Settings
     public bool VolumePeek { get; set; } = true;
     public bool MicPeek { get; set; } = true;
     public int ClipHistory { get; set; } = 60;
+
+    // ── Calls ──
+    /// <summary>Mute, deafen and leave a Discord voice channel from the island.</summary>
+    public bool DiscordControls { get; set; } = true;
+    /// <summary>Announce Discord mute and deafen changes.</summary>
+    public bool DiscordPeek { get; set; } = true;
 
     // ── Header ──
     public bool ShowClock { get; set; } = true;

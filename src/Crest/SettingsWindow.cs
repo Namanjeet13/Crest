@@ -87,8 +87,10 @@ public sealed class SettingsWindow : Window
         Page("Visualizer", "#FF9F0A", "î§™", Visualizer);
         Page("Tabs", "#5E5CE6", "î¢©", Tabs);
         Page("Notifications", "#FF453A", "îª", Notifications);
+        Page("Calls", "#5865F2", "", Calls);
         Page("Header", "#64D2FF", "î £", Header);
         Page("Motion", "#FFD60A", "î¥…", Motion);
+        Page("Pet", "#FF6482", "", Pet);
         Page("Shortcuts", "#AC8E68", "î¥", Shortcuts);
         Page("About", "#636366", "î¥†", About);
 
@@ -339,6 +341,14 @@ public sealed class SettingsWindow : Window
             Toggle("Show when the microphone turns on", null, () => _s.MicPeek, v => _s.MicPeek = v));
     }
 
+    private void Calls()
+    {
+        Group("Discord",
+            Toggle("Voice controls on the island", "Mute, deafen and leave a voice channel, even while Discord is minimized or in the tray",
+                   () => _s.DiscordControls, v => _s.DiscordControls = v),
+            Toggle("Show mute and deafen changes", null, () => _s.DiscordPeek, v => _s.DiscordPeek = v));
+    }
+
     private void Header()
     {
         Group(null,
@@ -356,6 +366,26 @@ public sealed class SettingsWindow : Window
             Note("Bounce 0 is the smooth iOS spring. Raise it for a playful overshoot."),
             Toggle("Reduce motion", "Fades instead of zooming, blurring and lensing.", () => _s.ReduceMotion, v => _s.ReduceMotion = v));
     }
+
+    private void Pet()
+    {
+        Group(null,
+            Toggle("Pixel pet", PetCost, () => _s.PixelPet, v => _s.PixelPet = v));
+        Group("Pet",
+            Choice("Pet", Crest.Controls.PixelPet.Kinds, () => _s.PetKind, v =>
+            {
+                if (v == _s.PetKind) return;
+                _s.PetKind = v;
+                _s.PetLook = Crest.Controls.PixelPet.Looks(v)[0];
+            }),
+            Choice("Look", Crest.Controls.PixelPet.Looks(_s.PetKind), () => _s.PetLook, v => _s.PetLook = v));
+        Group("Place",
+            Choice("Corner", new[] { "Left", "Right" }, () => _s.PetCorner, v => _s.PetCorner = v),
+            Choice("Size", new[] { "Large", "Small" }, () => _s.PetSize, v => _s.PetSize = v),
+            Note("It sits in its corner while the island is idle and hides for music, calls and fullscreen. After a minute away it yawns and curls up asleep; rest the pointer on it for hearts."));
+    }
+
+    private const string PetCost = "Rough cost: about +0.1% GPU and +10 MB of memory (under 0.1% of RAM on a 16 GB PC). It draws 12 tiny frames a second and stops completely while hidden.";
 
     private void Shortcuts()
     {

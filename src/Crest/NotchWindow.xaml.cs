@@ -28,7 +28,7 @@ public partial class NotchWindow : Window
     // Glyphs (Segoe Fluent / MDL2)
     private const string GPlay = "", GPause = "", GMic = "", GMicOff = "",
                          GMusic = "", GCopy = "", GCheck = "", GColor = "",
-                         GPhone = "", GWarn = "";
+GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
 
     // Geometry springs: width, height, bottom radius, top offset, shoulder size, hero progress
     private readonly Spring _w = new(190), _h = new(32), _r = new(15), _top = new(0), _s = new(8), _p = new(0);
@@ -67,6 +67,9 @@ public partial class NotchWindow : Window
     private AudioService _audio = null!;
     private MediaService _media = null!;
     private PrivacyService _privacy = null!;
+    private readonly DiscordVoiceService _discord = new();
+    private DateTime _callStart;
+    private bool _dcWasInCall, _dcWasMuted, _dcWasDeaf;
     private ClipboardService _clipboard = null!;
     private TrayIcon _tray = null!;
     private IntPtr _hwnd;
@@ -94,7 +97,7 @@ public partial class NotchWindow : Window
         WireSliders();
         PreviewMouseWheel += Island_PreviewWheel;
 
-        _hoverTimer.Tick += (_, _) => { _hoverTimer.Stop(); SetMode(Mode.Expanded); };
+        _hoverTimer.Tick += (_, _) => { _hoverTimer.Stop(); if (!PointerOnPet()) SetMode(Mode.Expanded); };
         _leaveTimer.Interval = TimeSpan.FromMilliseconds(120);
         _leaveTimer.Tick += (_, _) => LeaveTick();
         _peekTimer.Tick += (_, _) => { _peekTimer.Stop(); if (_mode == Mode.Peek) SetMode(Mode.Compact); };
@@ -118,6 +121,8 @@ public partial class NotchWindow : Window
         TabBar.LostMouseCapture += (_, _) => { if (_dragging) { _dragging = false; _dragStartX = null; MoveTabDrop(); } };
 
         Position();
+        WireMove();
+        WirePet();
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.BeginInvoke(Position);
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
@@ -129,8 +134,148 @@ public partial class NotchWindow : Window
     {
         Width = 720;
         Height = 360;
-        Left = SystemParameters.PrimaryScreenWidth / 2 - Width / 2;
+        Left = ClampCenter(SystemParameters.PrimaryScreenWidth / 2 + _settings.IslandX) - WinW / 2;
         Top = 0;
+    }
+
+    // ───────────────────────────── moving the island ─────────────────────────────
+    // Hold the island still for a moment, then drag it along the top edge. Near the middle it
+    // snaps to the exact centre and shows a guide, like aligning a layer in a photo editor.
+
+    private const double SnapZone = 18;          // DIPs from the centre that snap to it
+    private readonly DispatcherTimer _holdTimer = new() { Interval = TimeSpan.FromMilliseconds(320) };
+    private Point _holdStart;                    // screen DIPs
+    private bool _moving, _snapped;
+    private double _grab;                        // cursor x minus island centre when the move began
+    private readonly ScaleTransform _liftScale = new(1, 1, WinW / 2, 0);
+
+    /// <summary>
+    /// Keeps the island's centre where even the open island fits on screen, so opening it
+    /// never has to jump. The widest it gets is the expanded panel plus its shoulders.
+    /// </summary>
+    private static double ClampCenter(double x)
+    {
+        double screen = SystemParameters.PrimaryScreenWidth;
+        double half = ExpandedW / 2 + 24 * 1.75 + 6;
+        if (screen <= half * 2) return screen / 2;
+        return Math.Clamp(x, half, screen - half);
+    }
+
+    private Point CursorDip()
+    {
+        if (!Native.GetCursorPos(out var p)) return new Point(Left + WinW / 2, 0);
+        var src = PresentationSource.FromVisual(this);
+        var pt = new Point(p.X, p.Y);
+        return src?.CompositionTarget != null ? src.CompositionTarget.TransformFromDevice.Transform(pt) : pt;
+    }
+
+    private void WireMove()
+    {
+        ((FrameworkElement)Content).RenderTransform = _liftScale;
+        Island.PreviewMouseLeftButtonDown += Move_Down;
+        Island.PreviewMouseMove += Move_Move;
+        Island.PreviewMouseLeftButtonUp += Move_Up;
+        Island.LostMouseCapture += (_, _) => { if (_moving) EndMove(); };
+        _holdTimer.Tick += (_, _) => { _holdTimer.Stop(); BeginMove(); };
+    }
+
+    /// <summary>Things you press and drag to use keep their own drag.</summary>
+    private bool OnOwnDragControl(DependencyObject? d)
+    {
+        while (d != null)
+        {
+            if (d == TabBar || d is Controls.PillSlider || d is Controls.Scrubber ||
+                d is System.Windows.Controls.Primitives.ScrollBar || d is System.Windows.Controls.Primitives.Thumb ||
+                d is TextBox || d is Slider)
+                return true;
+            if (d == Island) return false;
+            d = d is Visual ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
+        }
+        return false;
+    }
+
+    private void Move_Down(object sender, MouseButtonEventArgs e)
+    {
+        if (_moving || OnOwnDragControl(e.OriginalSource as DependencyObject)) return;
+        _holdStart = CursorDip();
+        _holdTimer.Stop();
+        _holdTimer.Start();
+    }
+
+    private void Move_Move(object sender, MouseEventArgs e)
+    {
+        if (_holdTimer.IsEnabled)
+        {
+            // Moved before the hold finished: an ordinary press or swipe, not a move.
+            var c = CursorDip();
+            if (Math.Abs(c.X - _holdStart.X) > 6 || Math.Abs(c.Y - _holdStart.Y) > 6) _holdTimer.Stop();
+            return;
+        }
+        if (!_moving) return;
+        Drag(CursorDip().X);
+        e.Handled = true;
+    }
+
+    private void Move_Up(object sender, MouseButtonEventArgs e)
+    {
+        _holdTimer.Stop();
+        if (!_moving) return;
+        e.Handled = true;            // the drop is not a click: don't open the island
+        EndMove();
+    }
+
+    private void BeginMove()
+    {
+        if (Mouse.LeftButton != MouseButtonState.Pressed) return;
+        _moving = true;
+        _hoverTimer.Stop();
+        if (_mode == Mode.Expanded) SetMode(Mode.Compact);   // you carry the small pill, not the panel
+        _grab = CursorDip().X - (Left + WinW / 2);
+        _snapped = Math.Abs(Left + WinW / 2 - SystemParameters.PrimaryScreenWidth / 2) < 0.5;
+        Island.CaptureMouse();      // takes the press away from any button under it, so nothing clicks
+        Lift(1.045);
+        ShowGuide(_snapped);
+    }
+
+    private void Drag(double cursorX)
+    {
+        double mid = SystemParameters.PrimaryScreenWidth / 2;
+        double x = ClampCenter(cursorX - _grab);
+        bool snap = Math.Abs(x - mid) <= SnapZone;
+        if (snap) x = mid;
+        if (snap != _snapped)
+        {
+            _snapped = snap;
+            ShowGuide(snap);
+        }
+        double left = Math.Round(x - WinW / 2, 2);
+        if (Left != left) Left = left;
+    }
+
+    private void EndMove()
+    {
+        if (!_moving) return;
+        _moving = false;
+        if (Island.IsMouseCaptured) Island.ReleaseMouseCapture();
+        _hoverTimer.Stop();
+        Lift(1);
+        ShowGuide(false);
+        _settings.IslandX = _snapped ? 0 : Math.Round(Left + WinW / 2 - SystemParameters.PrimaryScreenWidth / 2, 1);
+        _settings.Save();
+    }
+
+    private void Lift(double scale)
+    {
+        var a = new DoubleAnimation(scale, TimeSpan.FromMilliseconds(scale > 1 ? 160 : 220))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        _liftScale.BeginAnimation(ScaleTransform.ScaleXProperty, a);
+        _liftScale.BeginAnimation(ScaleTransform.ScaleYProperty, a);
+    }
+
+    private void ShowGuide(bool on)
+    {
+        SnapGuide.Margin = new Thickness(WinW / 2 - 1, Math.Max(0, _top.Value) + Math.Max(2, _h.Value) + 10, 0, 0);
+        SnapGuide.BeginAnimation(OpacityProperty, new DoubleAnimation(on ? 1 : 0, TimeSpan.FromMilliseconds(on ? 90 : 180)));
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -154,6 +299,9 @@ public partial class NotchWindow : Window
         _privacy = new PrivacyService();
         _privacy.Changed += OnPrivacyChanged;
         _privacy.Start();
+
+        _discord.Changed += () => Dispatcher.BeginInvoke(OnDiscordChanged);
+        if (_settings.DiscordControls) _discord.Start();
 
         _clipboard = new ClipboardService();
         _clipboard.Copied += OnCopied;
@@ -323,7 +471,8 @@ public partial class NotchWindow : Window
         (_media.IsPlaying || (_pausedAt.HasValue && DateTime.Now - _pausedAt.Value < Linger));
     private double CompactMusicW => Math.Clamp(_settings.MusicWidth, 240, 460);
     private bool LensOn => _settings.LiquidLens && !_settings.ReduceMotion;
-    private bool OnCall => _privacy?.MicInUse == true;
+    private bool DiscordCall => _settings.DiscordControls && _discord.InCall;
+    private bool OnCall => _privacy?.MicInUse == true || DiscordCall;
 
     private void UpdateTargets()
     {
@@ -345,7 +494,17 @@ public partial class NotchWindow : Window
                 else if (call) { w = 240; h = 34; }
                 else if (music) { w = CompactMusicW; h = CompactMusicH; }
                 else if (_settings.HideUntilHover) { w = 160; h = 6; top = 0; }
-                else { w = Math.Clamp(_settings.IdleWidth, 60, 400); h = Math.Clamp(_settings.IdleHeight, 6, 44); }
+                else
+                {
+                    w = Math.Clamp(_settings.IdleWidth, 60, 400); h = Math.Clamp(_settings.IdleHeight, 6, 44);
+                    if (PetOn)
+                    {
+                        // Room for the cat: tall enough to stand in, wide enough to go for a walk.
+                        double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+                        h = Math.Max(h, Math.Min(44, Math.Ceiling(Pet.CatHeight(dpi) + 4)));
+                        w = Math.Max(w, Pet.CatWidth(dpi) + 100);
+                    }
+                }
                 if (_privacy?.CameraInUse == true && !call) w += 16;
                 r = IsNotch ? Math.Min(h / 2, 15) : h / 2;
                 s = h < 10 ? 3 : Math.Clamp(_settings.ShoulderSize, 0, 24);
@@ -356,6 +515,52 @@ public partial class NotchWindow : Window
         _w.Target = w; _h.Target = h; _r.Target = r; _top.Target = top; _s.Target = s;
         _p.Target = _mode == Mode.Expanded ? 1 : 0;
         StartAnimating();
+        UpdatePet();
+    }
+
+    // ───────────────────────────── pixel pet ─────────────────────────────
+
+    private bool PetOn => _settings.PixelPet && !_settings.HideUntilHover;
+    private bool _petShown;
+
+    private void WirePet()
+    {
+        Pet.Area = () =>
+        {
+            double w = Math.Max(20, _w.Value), h = Math.Max(2, _h.Value);
+            double inset = Math.Max(Math.Clamp(_r.Value, 0, h / 2), 10) + 2;
+            double cam = _privacy?.CameraInUse == true ? 16 : 0;
+            return ((WinW - w) / 2 + inset, (WinW + w) / 2 - inset - cam, h - 1.5);
+        };
+        Pet.Petted = PointerOnPet;
+        // Resting on the cat pets it; the rest of the island still opens on hover as before.
+        Island.MouseMove += (_, _) =>
+        {
+            if (_mode == Mode.Expanded || _settings.OpenOnClickOnly || _moving) return;
+            if (PointerOnPet()) _hoverTimer.Stop();
+            else if (!_hoverTimer.IsEnabled)
+            {
+                _hoverTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(0, _settings.HoverDelayMs));
+                _hoverTimer.Start();
+            }
+        };
+    }
+
+    private bool PointerOnPet() =>
+        _petShown && Native.GetCursorPos(out var p) && Pet.IsOnCat(new Point(p.X, p.Y));
+
+    /// <summary>The cat only shows while the island is idle: no call, no music, closed, not fullscreen.</summary>
+    private void UpdatePet()
+    {
+        Pet.Cell = _settings.PetSize == "Small" ? 1 : 2;
+        Pet.SetPet(_settings.PetKind, _settings.PetLook);
+        Pet.RightCorner = _settings.PetCorner == "Right";
+        bool show = PetOn && _mode == Mode.Compact && !OnCall && !MusicVisible && !_hiddenForFullscreen;
+        if (show == _petShown) return;
+        _petShown = show;
+        Pet.Running = show;
+        Pet.BeginAnimation(OpacityProperty, new DoubleAnimation(show ? 1 : 0, TimeSpan.FromMilliseconds(show ? 260 : 110))
+        { BeginTime = TimeSpan.FromMilliseconds(show ? 120 : 0) });
     }
 
     /// <summary>
@@ -1072,7 +1277,7 @@ public partial class NotchWindow : Window
 
     private void Island_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (_mode != Mode.Expanded && !_settings.OpenOnClickOnly)
+        if (_mode != Mode.Expanded && !_settings.OpenOnClickOnly && !_moving && !PointerOnPet())
         {
             _hoverTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(0, _settings.HoverDelayMs));
             _hoverTimer.Start();
@@ -1277,13 +1482,15 @@ public partial class NotchWindow : Window
         // but Play still works: it resumes that song, which brings it back.
         bool has = MusicVisible;
         HeroTitle.Text = has && _media!.Title.Length > 0 ? _media.Title : "Nothing playing";
-        HeroArtist.Text = has ? (_media!.Artist.Length > 0 ? _media.Artist : _media.Source) : "Play something in any app";
+        HeroArtist.Text = has ? (_media!.Artist.Length > 0 ? _media.Artist : _media.Source)
+                        : _media?.StartingSpotify == true ? "Opening Spotify…" : "Play something in any app";
         HeroArtBrush.ImageSource = has ? _media!.Art : null;
         HeroArtImage.Visibility = has && _media!.Art != null ? Visibility.Visible : Visibility.Collapsed;
         HeroPlaceholder.Visibility = has && _media!.Art != null ? Visibility.Collapsed : Visibility.Visible;
         PlayIcon.Data = (Geometry)FindResource(has && _media!.IsPlaying ? "GeoPause" : "GeoPlay");
         BtnPrev.IsEnabled = BtnNext.IsEnabled = has;
-        BtnPlay.IsEnabled = _media?.HasSession == true;
+        // With nothing at all to resume, Play opens Spotify in the background and resumes its last song.
+        BtnPlay.IsEnabled = _media?.HasSession == true || (_media != null && SpotifyStarter.IsInstalled);
         Scrub.Visibility = has && _media!.Duration > TimeSpan.Zero ? Visibility.Visible : Visibility.Hidden;
         Scrub.Playing = has && _media!.IsPlaying;
         Scrub.Cursor = has && _media!.CanSeek ? Cursors.Hand : Cursors.Arrow;
@@ -1305,7 +1512,17 @@ public partial class NotchWindow : Window
     private static string Fmt(TimeSpan t) =>
         t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}" : $"{(int)t.TotalMinutes}:{t.Seconds:00}";
 
-    private void Play_Click(object sender, RoutedEventArgs e) => _media.TogglePlay();
+    private async void Play_Click(object sender, RoutedEventArgs e)
+    {
+        if (_media == null) return;
+        if (_media.HasSession) { _media.TogglePlay(); return; }
+        if (_media.StartingSpotify) return;
+        var start = _media.ResumeSpotifyAsync();
+        RefreshMedia();
+        bool ok = await start;
+        RefreshMedia();
+        if (!ok) ShowPeek(GWarn, "Couldn't start Spotify", width: 300);
+    }
     private void Next_Click(object sender, RoutedEventArgs e) => _media.Next();
     private void Prev_Click(object sender, RoutedEventArgs e) => _media.Previous();
 
@@ -1462,22 +1679,90 @@ public partial class NotchWindow : Window
         HeaderMic.Foreground = (Brush)FindResource(muted ? "Red" : "Fg");
         TileMic.IsChecked = !muted;
         TileMicIcon.Text = muted ? GMicOff : GMic;
-        CallPillIcon.Text = muted ? GMicOff : GMic;
+        SyncCallPill();
     }
 
     private void OnPrivacyChanged()
     {
         bool call = _privacy.MicInUse;
         CamDot.Visibility = _privacy.CameraInUse ? Visibility.Visible : Visibility.Collapsed;
-        CallPill.Visibility = call ? Visibility.Visible : Visibility.Collapsed;
         MicDot.Visibility = Visibility.Collapsed; // the call pill already says it
-        HomeCall.Visibility = call ? Visibility.Visible : Visibility.Collapsed;
+        SyncCallUi();
         OnMediaChanged();
         SecondTick();
         if (call && _settings.MicPeek)
             ShowPeek(GMic, "Microphone in use", _privacy.MicApp.Length > 0 ? _privacy.MicApp : null,
                      width: 300, ms: 1800, iconBrush: (Brush)FindResource("Green"));
         else if (_mode == Mode.Compact) UpdateTargets();
+    }
+
+    private void SyncCallUi()
+    {
+        bool call = OnCall, dc = DiscordCall;
+        CallPill.Visibility = call ? Visibility.Visible : Visibility.Collapsed;
+        HomeCall.Visibility = call ? Visibility.Visible : Visibility.Collapsed;
+        DiscordBar.Visibility = dc ? Visibility.Visible : Visibility.Collapsed;
+        // The Discord buttons need the room the battery reading takes.
+        HeaderBattery.Visibility = _settings.ShowBattery && !dc ? Visibility.Visible : Visibility.Collapsed;
+        if (!call) _callStart = default;
+        SyncCallPill();
+    }
+
+    /// <summary>The compact pill's badge: Discord's own state in a Discord call, else the system microphone.</summary>
+    private void SyncCallPill()
+    {
+        if (_audio == null) return;
+        bool dc = DiscordCall;
+        bool deaf = dc && _discord.Deafened;
+        bool muted = dc ? _discord.Muted : _audio.IsMicMuted;
+        CallPillIcon.Text = deaf ? GHeadphones : muted ? GMicOff : GMic;
+        CallPillSlash.Visibility = deaf ? Visibility.Visible : Visibility.Collapsed;
+        CallPillBadge.Background = (Brush)FindResource(dc && (muted || deaf) ? "Red" : "Green");
+        CallPillTime.Foreground = CallPillBadge.Background;
+        if (!dc) return;
+
+        DcMute.Content = muted ? GMicOff : GMic;
+        DcMute.Foreground = (Brush)FindResource(muted ? "Red" : "Fg");
+        DcMute.ToolTip = muted ? "Unmute in Discord" : "Mute in Discord";
+        DcDeafenIcon.Foreground = (Brush)FindResource(deaf ? "Red" : "Fg");
+        DcDeafenSlash.Visibility = deaf ? Visibility.Visible : Visibility.Collapsed;
+        DcDeafen.ToolTip = deaf ? "Undeafen in Discord" : "Deafen in Discord";
+        string where = _discord.Channel.Length > 0
+            ? _discord.Channel + (_discord.Server.Length > 0 ? " · " + _discord.Server : "")
+            : "Discord voice";
+        HomeCall.ToolTip = where;
+    }
+
+    private void OnDiscordChanged()
+    {
+        bool inCall = DiscordCall;
+        if (inCall && _dcWasInCall && _settings.DiscordPeek)
+        {
+            // Deafen implies mute in Discord, so speak about deafen first.
+            if (_discord.Deafened != _dcWasDeaf)
+                ShowPeek(GHeadphones, _discord.Deafened ? "Deafened" : "Undeafened", "Discord", width: 280, ms: 1300,
+                         iconBrush: (Brush)FindResource(_discord.Deafened ? "Red" : "Green"));
+            else if (_discord.Muted != _dcWasMuted)
+                ShowPeek(_discord.Muted ? GMicOff : GMic, _discord.Muted ? "Muted" : "Unmuted", "Discord", width: 280, ms: 1300,
+                         iconBrush: (Brush)FindResource(_discord.Muted ? "Red" : "Green"));
+        }
+        _dcWasInCall = inCall;
+        _dcWasMuted = _discord.Muted;
+        _dcWasDeaf = _discord.Deafened;
+        SyncCallUi();
+        OnMediaChanged();
+        SecondTick();
+        if (_mode == Mode.Compact) UpdateTargets();
+    }
+
+    private void DcMute_Click(object sender, RoutedEventArgs e) => _discord.ToggleMute();
+    private void DcDeafen_Click(object sender, RoutedEventArgs e) => _discord.ToggleDeafen();
+
+    private void DcLeave_Click(object sender, RoutedEventArgs e)
+    {
+        _discord.Disconnect();
+        ShowPeek(GHangUp, "Left the voice channel", _discord.Channel.Length > 0 ? _discord.Channel : "Discord",
+                 width: 300, ms: 1400, iconBrush: (Brush)FindResource("Red"));
     }
 
     // ───────────────────────────── clipboard ─────────────────────────────
@@ -1729,13 +2014,21 @@ public partial class NotchWindow : Window
     private void SecondTick()
     {
         var now = DateTime.Now;
-        if (_privacy?.MicInUse == true && _privacy.MicSince != default)
+        if (OnCall)
         {
-            var span = now - _privacy.MicSince;
+            // A Discord call outlives the microphone (Discord can close it while muted),
+            // so the call keeps the earliest start either one has seen.
+            DateTime start = _callStart;
+            if (_privacy?.MicInUse == true && _privacy.MicSince != default && (start == default || _privacy.MicSince < start)) start = _privacy.MicSince;
+            if (DiscordCall && _discord.Since != default && (start == default || _discord.Since < start)) start = _discord.Since;
+            if (start == default) start = now;
+            _callStart = start;
+            var span = now - start;
             if (span < TimeSpan.Zero) span = TimeSpan.Zero;
             string callTime = Fmt(span);
             CallPillTime.Text = callTime;
-            HomeCallText.Text = (_privacy.MicApp.Length > 0 ? _privacy.MicApp + " · " : "On a call · ") + callTime;
+            HomeCallText.Text = DiscordCall ? callTime
+                : (_privacy?.MicApp.Length > 0 ? _privacy.MicApp + " · " : "On a call · ") + callTime;
         }
 
         if (_mode != Mode.Expanded) return;
@@ -1793,6 +2086,7 @@ public partial class NotchWindow : Window
             BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(200)));
             Island.IsHitTestVisible = false;
             UpdateVisualizerState();
+            UpdatePet();
         }
         else if (!fullscreen && _hiddenForFullscreen)
         {
@@ -1809,6 +2103,7 @@ public partial class NotchWindow : Window
         BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(200)));
         Island.IsHitTestVisible = true;
         UpdateVisualizerState();
+        UpdatePet();
     }
 
     // ───────────────────────────── settings ─────────────────────────────
@@ -1878,7 +2173,9 @@ public partial class NotchWindow : Window
             }
 
             ClockText.Visibility = _settings.ShowClock ? Visibility.Visible : Visibility.Collapsed;
-            HeaderBattery.Visibility = _settings.ShowBattery ? Visibility.Visible : Visibility.Collapsed;
+            if (_settings.DiscordControls) _discord.Start(); else _discord.Stop();
+            if (_audio != null) SyncCallUi();
+            else HeaderBattery.Visibility = _settings.ShowBattery ? Visibility.Visible : Visibility.Collapsed;
             HeaderMic.Visibility = _settings.ShowMicButton ? Visibility.Visible : Visibility.Collapsed;
             IslandShape.StrokeThickness = _settings.RimLight ? 1 : 0;
             ShadowShape.BeginAnimation(OpacityProperty, null);
@@ -1936,6 +2233,7 @@ public partial class NotchWindow : Window
             _spectrum.Dispose();
             _tray?.Dispose();
             _audio?.Dispose();
+            _discord.Dispose();
             BrightnessService.Restore();
         }
         catch (Exception ex)

@@ -24,6 +24,17 @@
             </Path>
         </Grid>
 
+        <!-- Centre guide: shows while you drag the island and it has snapped to the middle -->
+        <Rectangle x:Name="SnapGuide" Width="2" Height="110" RadiusX="1" RadiusY="1" Margin="359,40,0,0"
+                   HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" Opacity="0">
+            <Rectangle.Fill>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#E6FFFFFF" Offset="0" />
+                    <GradientStop Color="#00FFFFFF" Offset="1" />
+                </LinearGradientBrush>
+            </Rectangle.Fill>
+        </Rectangle>
+
         <Grid x:Name="Island" HorizontalAlignment="Left" VerticalAlignment="Top" Width="720" Height="300"
               MouseEnter="Island_MouseEnter" MouseLeave="Island_MouseLeave"
               MouseLeftButtonUp="Island_Click">
@@ -93,9 +104,14 @@
                 <!-- ========== COMPACT (call / idle) ========== -->
                 <Grid x:Name="CompactView" HorizontalAlignment="Center" VerticalAlignment="Top">
                     <StackPanel x:Name="CallPill" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed">
-                        <Border Width="22" Height="22" CornerRadius="11" Background="{StaticResource Green}">
-                            <TextBlock x:Name="CallPillIcon" Style="{StaticResource Icon}" Text="&#xE720;" FontSize="11"
-                                       Foreground="#000" HorizontalAlignment="Center" />
+                        <Border x:Name="CallPillBadge" Width="22" Height="22" CornerRadius="11" Background="{StaticResource Green}">
+                            <Grid>
+                                <TextBlock x:Name="CallPillIcon" Style="{StaticResource Icon}" Text="&#xE720;" FontSize="11"
+                                           Foreground="#000" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <!-- Deafened: the headphones get a slash -->
+                                <Line x:Name="CallPillSlash" X1="6" Y1="16" X2="16" Y2="6" Stroke="#000" StrokeThickness="1.6"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" />
+                            </Grid>
                         </Border>
                         <TextBlock x:Name="CallPillTime" Margin="8,0,0,0" FontSize="12.5" FontWeight="SemiBold"
                                    Foreground="{StaticResource Green}" VerticalAlignment="Center" Text="0:00" />
@@ -105,6 +121,9 @@
                         <Ellipse x:Name="CamDot" Width="6" Height="6" Margin="4,0,0,0" Fill="{StaticResource Green}" Visibility="Collapsed" />
                     </StackPanel>
                 </Grid>
+
+                <!-- ========== PIXEL PET: lives in the idle island (driven in code) ========== -->
+                <c:PixelPet x:Name="Pet" Opacity="0" />
 
                 <!-- ========== PEEK (transient activity) ========== -->
                 <Grid x:Name="PeekView" HorizontalAlignment="Center" VerticalAlignment="Top" Opacity="0" IsHitTestVisible="False">
@@ -237,7 +256,27 @@
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                 <StackPanel x:Name="HomeCall" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,10,0" VerticalAlignment="Center">
                                     <Ellipse Width="7" Height="7" Fill="{StaticResource Green}" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="HomeCallText" Margin="5,0,0,0" FontSize="11.5" FontWeight="Medium" Foreground="{StaticResource Green}" Text="On a call" />
+                                    <TextBlock x:Name="HomeCallText" Margin="5,0,0,0" FontSize="11.5" FontWeight="Medium" Foreground="{StaticResource Green}" Text="On a call"
+                                               VerticalAlignment="Center" MaxWidth="110" TextTrimming="CharacterEllipsis" />
+                                    <!-- Discord voice: mute, deafen, leave -->
+                                    <Border x:Name="DiscordBar" Margin="7,0,0,0" CornerRadius="14" Padding="1" Visibility="Collapsed"
+                                            Background="{StaticResource GlassFill}" BorderBrush="{StaticResource GlassRim}" BorderThickness="1">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button x:Name="DcMute" Style="{StaticResource IconButton}" Width="26" Height="24" FontSize="12"
+                                                    Content="&#xE720;" ToolTip="Mute in Discord" Click="DcMute_Click" />
+                                            <Button x:Name="DcDeafen" Style="{StaticResource IconButton}" Width="26" Height="24" FontSize="12"
+                                                    ToolTip="Deafen in Discord" Click="DcDeafen_Click">
+                                                <Grid Width="14" Height="14">
+                                                    <TextBlock x:Name="DcDeafenIcon" FontFamily="{StaticResource IconFont}" Text="&#xE7F6;" FontSize="12"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                    <Line x:Name="DcDeafenSlash" X1="1" Y1="13" X2="13" Y2="1" StrokeThickness="1.5"
+                                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Stroke="{StaticResource Red}" Visibility="Collapsed" />
+                                                </Grid>
+                                            </Button>
+                                            <Button x:Name="DcLeave" Style="{StaticResource IconButton}" Width="26" Height="24" FontSize="12"
+                                                    Foreground="{StaticResource Red}" Content="&#xE778;" ToolTip="Leave the voice channel" Click="DcLeave_Click" />
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
                                 <TextBlock x:Name="HeaderBattery" FontSize="11.5" FontWeight="Medium" Foreground="{StaticResource FgDim}" VerticalAlignment="Center" Margin="0,0,10,0" />
                                 <TextBlock x:Name="ClockText" FontFamily="{StaticResource DisplayFont}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,4,0" Text="00:00" />

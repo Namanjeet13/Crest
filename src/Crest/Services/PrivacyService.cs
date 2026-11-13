@@ -54,9 +54,13 @@ public sealed class PrivacyService
         if (changed) Changed?.Invoke();
     }
 
+    // Windows leaves a record "open" forever when an app crashes or updates while it is using the
+    // mic (Discord moves to a new app-x.y.z folder on every update). Such stale records made the
+    // call timer read hundreds of hours. A record only counts if it began after this boot and,
+    // for desktop apps, that exact exe is running now. Of the live ones, the newest is the call.
     private static (bool inUse, DateTime since, string app) Check(string capability)
     {
-        DateTime earliest = DateTime.MaxValue;
+        DateTime latest = DateTime.MinValue;
         string app = "";
         try
         {
@@ -71,13 +75,13 @@ public sealed class PrivacyService
                     foreach (var sub in np.GetSubKeyNames())
                     {
                         using var k = np.OpenSubKey(sub);
-                        Inspect(k, sub, ref earliest, ref app);
+                        Inspect(k, sub, true, ref latest, ref app);
                     }
                 }
                 else
                 {
                     using var k = root.OpenSubKey(name);
-                    Inspect(k, name, ref earliest, ref app);
+                    Inspect(k, name, false, ref latest, ref app);
                 }
             }
         }
@@ -85,22 +89,53 @@ public sealed class PrivacyService
         {
             return (false, default, "");
         }
-        return earliest == DateTime.MaxValue ? (false, default, "") : (true, earliest, app);
+        return latest == DateTime.MinValue ? (false, default, "") : (true, latest, app);
     }
 
-    private static void Inspect(RegistryKey? key, string name, ref DateTime earliest, ref string app)
+    private static void Inspect(RegistryKey? key, string name, bool desktopApp, ref DateTime latest, ref string app)
     {
         if (key == null) return;
         if (key.GetValue("LastUsedTimeStop") is long stop && stop == 0 &&
             key.GetValue("LastUsedTimeStart") is long start && start > 0)
         {
             DateTime since;
-            try { since = DateTime.FromFileTime(start); } catch { since = DateTime.Now; }
-            if (since < earliest)
+            try { since = DateTime.FromFileTime(start); } catch { return; }
+            var now = DateTime.Now;
+            var boot = now - TimeSpan.FromMilliseconds(Environment.TickCount64);
+            if (since < boot) return;                       // left open before a restart
+            if (since > now) since = now;
+            if (desktopApp && !IsRunning(name.Replace('#', '\\'))) return; // crashed or updated away
+            if (since > latest)
             {
-                earliest = since;
+                latest = since;
                 app = PrettyApp(name);
             }
+        }
+    }
+
+    private static bool IsRunning(string exePath)
+    {
+        string exe = System.IO.Path.GetFileNameWithoutExtension(exePath);
+        var procs = System.Diagnostics.Process.GetProcessesByName(exe);
+        try
+        {
+            if (procs.Length == 0) return false;
+            bool anyUnreadable = false;
+            foreach (var p in procs)
+            {
+                try
+                {
+                    var path = p.MainModule?.FileName;
+                    if (path == null) { anyUnreadable = true; continue; }
+                    if (string.Equals(path, exePath, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+                catch { anyUnreadable = true; } // elevated or protected: trust the name
+            }
+            return anyUnreadable;
+        }
+        finally
+        {
+            foreach (var p in procs) p.Dispose();
         }
     }
 

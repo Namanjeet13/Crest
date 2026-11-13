@@ -15,7 +15,10 @@ namespace Crest.Services;
 /// </summary>
 public static class SourceLauncher
 {
-    public static readonly string[] Browsers = { "chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "arc", "zen" };
+    private static readonly System.Text.RegularExpressions.Regex SafeAppId =
+        new(@"^[A-Za-z0-9._-]+(![A-Za-z0-9._-]+)?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    public static readonly string[] Browsers ={ "chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "arc", "zen" };
 
     public static async Task OpenAsync(string aumid, string title)
     {
@@ -39,6 +42,9 @@ public static class SourceLauncher
         }
 
         // Packaged apps (Media Player, Apple Music...) or no window yet: let the shell activate it.
+        // The ID comes from whichever app is playing, so only a plain app ID or exe name is handed to the
+        // shell: never a path, URL or anything with arguments.
+        if (!SafeAppId.IsMatch(aumid)) return;
         try
         {
             string target = aumid.Contains('!') ? @"shell:AppsFolder\" + aumid : aumid;
