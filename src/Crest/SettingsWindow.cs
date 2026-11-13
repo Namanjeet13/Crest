@@ -398,14 +398,83 @@ public sealed class SettingsWindow : Window
 
     private void About()
     {
-        var v = typeof(SettingsWindow).Assembly.GetName().Version;
         Group(null,
-            Row("Version", new TextBlock { Text = $"{v?.Major}.{v?.Minor}.{v?.Build}", Foreground = Dim }),
+            Row("Version", new TextBlock { Text = UpdateService.Current.ToString(3), Foreground = Dim }),
             Row("Settings file", Link("Show", Blue, () =>
             {
                 try { System.Diagnostics.Process.Start("explorer.exe", App.DataDir); } catch { }
             })));
-        Group(null, Note("Crest is free and open. Made to feel at home on Windows, with the polish of iOS."));
+        Group("Updates", UpdateRow(),
+            Toggle("Check for updates automatically", "Asks GitHub for a newer release a minute after Crest starts, then every six hours. Nothing is installed until you choose to.",
+                () => _s.AutoUpdateCheck, v => _s.AutoUpdateCheck = v));
+        Group(null, Note("Crest is free and open source: github.com/Namanjeet13/Crest. Made to feel at home on Windows, with the polish of iOS."));
+    }
+
+    private static bool _updating;
+
+    private UIElement UpdateRow()
+    {
+        var status = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        var sub = new TextBlock { Foreground = Dim, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+        var slot = new Border { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
+        var d = new DockPanel { Margin = new Thickness(16, 0, 14, 0), MinHeight = 56 };
+        DockPanel.SetDock(slot, Dock.Right);
+        d.Children.Add(slot);
+        var t = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 8, 0, 8) };
+        t.Children.Add(status);
+        t.Children.Add(sub);
+        d.Children.Add(t);
+
+        void Say(string title, string detail, UIElement? button = null)
+        {
+            status.Text = title;
+            sub.Text = detail;
+            sub.Visibility = detail.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            slot.Child = button;
+        }
+
+        void Idle()
+        {
+            var r = UpdateService.Available;
+            if (r != null)
+                Say($"Crest {r.Version.ToString(3)} is available", $"{r.Size / 1048576.0:0} MB. Crest closes, updates and opens again by itself.", Pill("Install", () => Install(r)));
+            else if (UpdateService.LastChecked == default)
+                Say("Check for a newer version", "", Pill("Check now", Check));
+            else
+                Say("Crest is up to date", $"Checked at {UpdateService.LastChecked:t}", Pill("Check now", Check));
+        }
+
+        async void Check()
+        {
+            Say("Checking…", "");
+            try { await UpdateService.CheckAsync(); Idle(); }
+            catch (Exception) { Say("Couldn't reach GitHub", "Check your internet connection and try again.", Pill("Try again", Check)); }
+        }
+
+        async void Install(UpdateService.Release r)
+        {
+            if (_updating) return;
+            _updating = true;
+            Say($"Downloading Crest {r.Version.ToString(3)}…", "0%");
+            var progress = new Progress<double>(p => { if (status.Text.StartsWith("Downloading")) sub.Text = $"{p * 100:0}%"; });
+            try
+            {
+                await UpdateService.InstallAsync(r, progress);
+                Say("Installing…", "Crest will open again in a moment.");
+            }
+            catch (Exception ex)
+            {
+                _updating = false;
+                App.Log(ex);
+                Say("The update didn't install",
+                    ex is InvalidOperationException ? ex.Message : "The download failed. Check your internet connection and try again.",
+                    Pill("Try again", () => Install(r)));
+            }
+        }
+
+        if (_updating) Say("Installing…", "Crest will open again in a moment.");
+        else Idle();
+        return d;
     }
 
     // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

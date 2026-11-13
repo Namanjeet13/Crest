@@ -61,6 +61,7 @@ To remove Crest, go to **Settings › Apps › Installed apps › Crest › Unin
 - **Quick controls.** Volume, brightness on laptops, Wi-Fi, Bluetooth, Snip, Night light, and a colour picker (Ctrl+Alt+C).
 - **System.** CPU, memory, battery and uptime.
 - **Pixel pet.** It blinks, yawns and curls up asleep when you're away, and shows hearts when you rest the pointer on it. It hides for music, calls and fullscreen.
+- **Updates itself.** When a new version is out, the island tells you. Install it from Settings › About, and Crest checks the download, updates and reopens.
 - **Settings.** Shape, size, hide until hover, hide in fullscreen, start with Windows, visualizer, peeks, Discord and pet.
 
 ### Keyboard shortcuts
@@ -76,10 +77,11 @@ You can turn each shortcut off in Settings.
 
 ## Privacy
 
-Crest runs entirely on your PC. It has no account, telemetry, analytics or ads, and it makes no network requests of its own.
+Crest runs entirely on your PC. It has no account, telemetry, analytics or ads. Its only network request is the update check: it asks GitHub's public API for the latest Crest release, sending nothing about you. You can turn it off in Settings › About.
 
 - Settings and clipboard history are stored in `%AppData%\Crest`. Clipboard history is encrypted so only your Windows account can read it.
 - Media info comes from Windows' own media controls. Mic and camera activity comes from Windows' privacy records, which Crest only reads.
+- Updates are only installed when you choose to, and only if the download's SHA-256 matches the checksum GitHub publishes for that release.
 - Discord controls work by pressing Discord's own buttons through Windows UI Automation. Crest never reads your messages or touches your login.
 
 ## Build from source

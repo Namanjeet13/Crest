@@ -10,7 +10,10 @@ $src     = Join-Path $root 'src\Crest'
 $dist    = Join-Path $root 'dist'
 $app     = Join-Path $dist 'app'
 $work    = Join-Path $dist 'build'
-$version = '1.0.0'
+# One version for everything: read it from Crest.csproj and refuse to build if Setup.cs or Uninstall.cs disagree.
+$version = ([xml](Get-Content (Join-Path $src 'Crest.csproj'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+if (-not (Select-String -Quiet -SimpleMatch "Version = `"$version`"" "$PSScriptRoot\Setup.cs")) { throw "Setup.cs Info.Version is not $version" }
+if (-not (Select-String -Quiet -SimpleMatch "`"$version.0`"" "$PSScriptRoot\Uninstall.cs")) { throw "Uninstall.cs AssemblyVersion is not $version.0" }
 $csc     = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $fx      = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319"
 $wpf     = "$fx\WPF"

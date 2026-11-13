@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -143,6 +143,11 @@ public sealed class Settings
     public bool HotkeyMic { get; set; } = true;
     public bool HotkeyColor { get; set; } = true;
     public bool HotkeyClip { get; set; } = true;
+
+    // ── Updates ──
+    public bool AutoUpdateCheck { get; set; } = true;
+    /// <summary>The newest version already announced in a peek, so each release is announced once.</summary>
+    public string AnnouncedUpdate { get; set; } = "";
 
     public event Action? Changed;
 

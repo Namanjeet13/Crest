@@ -324,6 +324,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         SecondTick();
         _tick.Start();
         _watch.Start();
+        StartUpdateChecks();
         VersionText.Text = "v" + (typeof(App).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
         Viz.SetLevels(_flat, 0);
 
@@ -2219,6 +2220,33 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         }
         if (_settingsWindow.WindowState == WindowState.Minimized) _settingsWindow.WindowState = WindowState.Normal;
         _settingsWindow.Activate();
+    }
+
+    private DispatcherTimer? _updateTimer;
+
+    /// <summary>A minute after start, then every six hours: ask GitHub for a newer release and announce it once.</summary>
+    private void StartUpdateChecks()
+    {
+        UpdateService.CleanUp();
+        _updateTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        _updateTimer.Tick += async (_, _) =>
+        {
+            _updateTimer.Interval = TimeSpan.FromHours(6);
+            if (!_settings.AutoUpdateCheck) return;
+            try
+            {
+                var r = await UpdateService.CheckAsync();
+                if (r == null) return;
+                string v = r.Version.ToString(3);
+                if (_settings.AnnouncedUpdate == v) return;
+                _settings.AnnouncedUpdate = v;
+                _settings.Commit();
+                ShowPeek(GCheck, $"Crest {v} is available", "Install it in Settings › About", width: 340, ms: 4000);
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or System.Threading.Tasks.TaskCanceledException or System.Text.Json.JsonException) { }
+            catch (Exception ex) { App.Log(ex); }
+        };
+        _updateTimer.Start();
     }
 
     private void Quit_Click(object sender, RoutedEventArgs e) => Quit();

@@ -31,7 +31,7 @@ namespace CrestSetup
 {
     internal static class Info
     {
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
         public const string Name = "Crest";
         public const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Crest";
         public const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -53,11 +53,14 @@ namespace CrestSetup
     internal static class Program
     {
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
+            // "/update" comes from Crest's own updater: keep the existing choices, install without asking,
+            // and open Crest again when done. If anything fails, the normal window shows the error.
+            bool update = Array.Exists(args, a => a.Equals("/update", StringComparison.OrdinalIgnoreCase));
             var app = new Application();
             app.ShutdownMode = ShutdownMode.OnMainWindowClose;
-            app.Run(new SetupWindow());
+            app.Run(new SetupWindow(update));
         }
     }
 
@@ -73,9 +76,11 @@ namespace CrestSetup
         private readonly ProgressBar _bar = new ProgressBar();
         private readonly StackPanel _buttons = new StackPanel();
         private bool _busy;
+        private readonly bool _update;
 
-        public SetupWindow()
+        public SetupWindow(bool update)
         {
+            _update = update;
             Title = "Install Crest";
             Width = 520; SizeToContent = SizeToContent.Height;
             ResizeMode = ResizeMode.NoResize;
@@ -141,6 +146,16 @@ namespace CrestSetup
             root.Children.Add(_buttons);
             ShowButtons(Button("Cancel", false, Close), Button("Install", true, Install));
 
+            if (update)
+            {
+                // Same shortcuts and sign-in choice as the copy being replaced.
+                _desktop.IsChecked = File.Exists(Info.DesktopLink);
+                using (var run = Registry.CurrentUser.OpenSubKey(Info.RunKey))
+                    _startup.IsChecked = run != null && run.GetValue("Crest") != null;
+                Title = "Updating Crest";
+                ContentRendered += delegate { Install(); };
+            }
+
             Content = root;
             SourceInitialized += delegate
             {
@@ -180,7 +195,7 @@ namespace CrestSetup
             _options.IsEnabled = false;
             _options.Opacity = 0.5;
             _bar.Visibility = Visibility.Visible;
-            _title.Text = "Installing…";
+            _title.Text = _update ? "Updating Crest…" : "Installing…";
             ShowButtons();
 
             var worker = new Thread(() =>
@@ -279,6 +294,12 @@ namespace CrestSetup
                 ShowButtons(Button("Close", false, Close), Button("Try again", true, Install));
                 return;
             }
+            if (_update)
+            {
+                OpenCrest();
+                Close();
+                return;
+            }
             _title.Text = "Crest is installed";
             _text.Text = "Crest lives at the top of your screen. Move the pointer up to the island to open it. "
                        + "Right-click the Crest icon in the taskbar tray for settings. "
@@ -286,10 +307,15 @@ namespace CrestSetup
             _options.Visibility = Visibility.Collapsed;
             ShowButtons(Button("Close", false, Close), Button("Open Crest", true, () =>
             {
-                try { Process.Start(new ProcessStartInfo(Path.Combine(Info.InstallDir, "Crest.exe")) { UseShellExecute = true, WorkingDirectory = Info.InstallDir }); }
-                catch { }
+                OpenCrest();
                 Close();
             }));
+        }
+
+        private static void OpenCrest()
+        {
+            try { Process.Start(new ProcessStartInfo(Path.Combine(Info.InstallDir, "Crest.exe")) { UseShellExecute = true, WorkingDirectory = Info.InstallDir }); }
+            catch { }
         }
 
         /// <summary>An update cannot replace files that are in use: close any running Crest first.</summary>

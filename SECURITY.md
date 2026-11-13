@@ -14,5 +14,5 @@ Only the [latest release](https://github.com/Namanjeet13/Crest/releases/latest) 
 
 - **Files:** its own folder (`%LocalAppData%\Programs\Crest`) and its settings (`%AppData%\Crest`). Clipboard history is encrypted with Windows DPAPI for your account only.
 - **Registry:** only the current user's sign-in entry (`Run`) and the Apps list entry (`Uninstall\Crest`).
-- **Network:** none. Crest makes no network requests.
+- **Network:** only `api.github.com` (to check for a new release) and the release download from `github.com`, over HTTPS. The installer is run only if its SHA-256 matches the digest GitHub publishes for that file. The automatic check can be turned off.
 - **Other apps:** it reads window titles and presses buttons through Windows UI Automation, for media and Discord controls. It never reads typed text or passwords.
