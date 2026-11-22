@@ -6,7 +6,6 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Crest.Animation;
@@ -26,9 +25,9 @@ public partial class NotchWindow : Window
     private const double K = 0.5523; // cubic Bézier quarter-circle constant
 
     // Glyphs (Segoe Fluent / MDL2)
-    private const string GPlay = "", GPause = "", GMic = "", GMicOff = "",
+    private const string GMic = "", GMicOff = "",
                          GMusic = "", GCopy = "", GCheck = "", GColor = "",
-GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
+                         GHeadphones = "", GHangUp = "", GWarn = "";
 
     // Geometry springs: width, height, bottom radius, top offset, shoulder size, hero progress
     private readonly Spring _w = new(190), _h = new(32), _r = new(15), _top = new(0), _s = new(8), _p = new(0);
@@ -45,7 +44,6 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
     private bool _applying;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private bool _animating;
-    private TimeSpan _lastRender;
     private const double WinW = 720;
     /// <summary>The island's current outline bounds in window coordinates (for hover tests).</summary>
     private Rect _shapeRect;
@@ -98,7 +96,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         PreviewMouseWheel += Island_PreviewWheel;
 
         _hoverTimer.Tick += (_, _) => { _hoverTimer.Stop(); if (!PointerOnPet()) SetMode(Mode.Expanded); };
-        _leaveTimer.Interval = TimeSpan.FromMilliseconds(120);
+        _leaveTimer.Interval = TimeSpan.FromMilliseconds(25); // the close delay lands within a frame or two
         _leaveTimer.Tick += (_, _) => LeaveTick();
         _peekTimer.Tick += (_, _) => { _peekTimer.Stop(); if (_mode == Mode.Peek) SetMode(Mode.Compact); };
         _vizTimer.Tick += (_, _) => VizTick();
@@ -414,9 +412,10 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         {
             _leaveTimer.Stop();
             _glassTimer?.Stop();
+            _live?.Stop();
             _pinnedUntil = default;
             FinishPage();
-            if (previous == Mode.Expanded) ScheduleTrim();
+            if (previous == Mode.Expanded) ScheduleTrim(60);
         }
 
         Fade(CompactView, mode == Mode.Compact);
@@ -428,8 +427,11 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
             SnapTabDrop();
 
         UpdateDrift();
-        var shadow = new DoubleAnimation(mode == Mode.Expanded && _settings.Shadow ? 1 : 0, TimeSpan.FromMilliseconds(mode == Mode.Expanded ? 320 : 160));
-        ShadowShape.BeginAnimation(OpacityProperty, shadow);
+        // The shadow's 40 px blur is redrawn on every frame its outline changes, which dropped
+        // frames while the island opened and closed. It stays off while the island moves and
+        // fades in once it has opened.
+        HideShadow();
+        _shadowAfterOpen = mode == Mode.Expanded && _settings.Shadow;
 
         UpdateTargets();
         UpdateHero();
@@ -477,13 +479,14 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
 
     private void UpdateTargets()
     {
+        bool widgets = false;
         double w, h, r, s, top = IsNotch ? 0 : Math.Clamp(_settings.IslandOffset, 0, 40);
         switch (_mode)
         {
             case Mode.Expanded:
                 w = ExpandedW; h = ExpandedH; r = Math.Clamp(_settings.ExpandedCorner, 8, 60);
                 s = Math.Clamp(_settings.ShoulderSize, 0, 24) * 1.75;
-                Configure(0.47, 0.88 - 0.8 * _settings.Bounce);   // a breath of life, no visible wobble
+                ConfigureMs(_settings.OpenAnimMs, 0.88 - 0.8 * _settings.Bounce);   // a breath of life, no visible wobble
                 break;
             case Mode.Peek:
                 w = _peekWidth; h = 50; r = IsNotch ? 22 : 25; s = 10;
@@ -491,6 +494,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
                 break;
             default:
                 bool call = OnCall, music = MusicVisible;
+                widgets = !call && !music && !_settings.HideUntilHover && Widgets.Any;
                 if (call && music) { w = 260; h = 34; }
                 else if (call) { w = 240; h = 34; }
                 else if (music) { w = CompactMusicW; h = CompactMusicH; }
@@ -505,18 +509,42 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
                         h = Math.Max(h, Math.Min(44, Math.Ceiling(Pet.CatHeight(dpi) + 4)));
                         w = Math.Max(w, Pet.CatWidth(dpi) + 100);
                     }
+                    if (widgets && _settings.WidgetsGrow)
+                    {
+                        // Room for the corner widgets, and between them for the pet (or a small gap).
+                        double lw = Widgets.LeftWidth, rw = Widgets.RightWidth;
+                        double middle = PetOn ? Pet.CatWidth(VisualTreeHelper.GetDpi(this).DpiScaleX) + 40 : lw > 0 && rw > 0 ? 20 : 0;
+                        w = Math.Max(w, Math.Ceiling(lw + rw + 24 + middle));
+                    }
                 }
                 if (_privacy?.CameraInUse == true && !call) w += 16;
                 r = IsNotch ? Math.Min(h / 2, 15) : h / 2;
                 s = h < 10 ? 3 : Math.Clamp(_settings.ShoulderSize, 0, 24);
-                Configure(0.4, 1.0);    // closing settles without bounce
+                ConfigureMs(_settings.CloseAnimMs, 1.0);    // closing settles without bounce
                 break;
         }
         if (!IsNotch) s = 0;
         _w.Target = w; _h.Target = h; _r.Target = r; _top.Target = top; _s.Target = s;
         _p.Target = _mode == Mode.Expanded ? 1 : 0;
         StartAnimating();
+        ShowWidgets(widgets && _mode == Mode.Compact && !_hiddenForFullscreen);
         UpdatePet();
+    }
+
+    // ───────────────────────────── closed-island widgets ─────────────────────────────
+
+    private IdleWidgets? _widgets;
+    private IdleWidgets Widgets => _widgets ??= new IdleWidgets(IdleLeft, IdleRight);
+    private bool? _widgetsShown;
+    private bool WidgetsShown => _widgetsShown == true;
+
+    private void ShowWidgets(bool show)
+    {
+        if (show == _widgetsShown) return;
+        _widgetsShown = show;
+        foreach (var p in new UIElement[] { IdleLeft, IdleRight })
+            p.BeginAnimation(OpacityProperty, new DoubleAnimation(show ? 1 : 0, TimeSpan.FromMilliseconds(show ? 260 : 110))
+            { BeginTime = TimeSpan.FromMilliseconds(show ? 100 : 0), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
     }
 
     // ───────────────────────────── pixel pet ─────────────────────────────
@@ -531,7 +559,10 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
             double w = Math.Max(20, _w.Value), h = Math.Max(2, _h.Value);
             double inset = Math.Max(Math.Clamp(_r.Value, 0, h / 2), 10) + 2;
             double cam = _privacy?.CameraInUse == true ? 16 : 0;
-            return ((WinW - w) / 2 + inset, (WinW + w) / 2 - inset - cam, h - 1.5);
+            // The pet walks between the corner widgets.
+            double lw = WidgetsShown ? Widgets.LeftWidth : 0, rw = WidgetsShown ? Widgets.RightWidth : 0;
+            double left = Math.Max(inset, lw > 0 ? 12 + lw + 8 : 0), right = Math.Max(inset, rw > 0 ? 12 + rw + 8 : 0) + cam;
+            return ((WinW - w) / 2 + left, (WinW + w) / 2 - right, h - 1.5);
         };
         Pet.Petted = PointerOnPet;
         // Resting on the cat pets it; the rest of the island still opens on hover as before.
@@ -543,6 +574,8 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
             {
                 _hoverTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(0, _settings.HoverDelayMs));
                 _hoverTimer.Start();
+                PrepareGlass();
+                WarmUp(Math.Max(0, _settings.HoverDelayMs) + 300, content: true);
             }
         };
     }
@@ -604,6 +637,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
             g = gt * gt * (3 - 2 * gt);
         }
         if (Glass.Opacity != g) Glass.Opacity = g;
+        if (_live != null) _live.Paused = b >= 0.995 || _animating; // hidden, or moving: hold the picture
         var gvis = g > 0.002 ? Visibility.Visible : Visibility.Collapsed;
         if (Glass.Visibility != gvis) Glass.Visibility = gvis;
 
@@ -621,36 +655,65 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
 
     private bool GlassOn => _settings.LiquidGlass;
 
-    /// <summary>Photographs the screen behind the island. The first picture is made at once so the glass is there as it opens.</summary>
-    private async void CaptureGlass(bool now)
+    /// <summary>Photographs the screen behind the island and processes it off the UI thread.</summary>
+    private async void CaptureGlass()
     {
-        if (!GlassOn || _hwnd == IntPtr.Zero || _glassBusy) return;
+        if (!GlassOn || _hwnd == IntPtr.Zero || _glassBusy || _live?.Running == true) return;
         var grab = GlassCapture.Grab(_hwnd);
         if (grab is not { } g) return;
-        if (_glass == null)
-        {
-            _frost = new ImageBrush { Stretch = Stretch.Fill };
-            _glass = new GlassEffect { Frost = _frost };
-            GlassImage.Effect = _glass;
-            // The glass only changes when the island moves or a new picture arrives: keep the shaded result.
-            Glass.CacheMode = new BitmapCache();
-            _glassShape = default;
-            UpdateGlassLook();
-        }
         GlassCapture.Shot shot;
-        if (now) shot = GlassCapture.Process(g.px, g.w, g.h);
-        else
-        {
-            _glassBusy = true;
-            try { shot = await GlassCapture.ProcessAsync(g.px, g.w, g.h); }
-            finally { _glassBusy = false; }
-            if (_mode != Mode.Expanded) return;
-        }
+        _glassBusy = true;
+        try { shot = await GlassCapture.ProcessAsync(g.px, g.w, g.h); }
+        finally { _glassBusy = false; }
+        if (_mode != Mode.Expanded) return;
+        ShowGlass(shot);
+    }
+
+    private void EnsureGlass()
+    {
+        if (_glass != null) return;
+        _frost = new ImageBrush { Stretch = Stretch.Fill };
+        _glass = new GlassEffect { Frost = _frost };
+        GlassImage.Effect = _glass;
+        // The glass only changes when the island moves or a new picture arrives: keep the shaded result.
+        Glass.CacheMode = new BitmapCache();
+        _glassShape = default;
+        UpdateGlassLook();
+    }
+
+    private void ShowGlass(GlassCapture.Shot shot)
+    {
+        EnsureGlass();
         if (Environment.GetEnvironmentVariable("CREST_GLASS_DUMP") is { Length: > 0 } dump)
         { SavePng(shot.Sharp, dump); SavePng(shot.Frost, dump + ".frost.png"); }
         GlassImage.Source = shot.Sharp;
         _frost!.ImageSource = shot.Frost;
         Materialize();
+    }
+
+    // The picture for the glass is taken while the pointer rests on the closed island (the hover
+    // delay), when nothing is moving. Grabbing it as the island starts to open blocked the UI
+    // thread for 45-70 ms and dropped the first frames of the animation.
+    private System.Threading.Tasks.Task<GlassCapture.Shot>? _preShot;
+    private DateTime _preShotAt;
+    private bool _glassAfterOpen;
+
+    private void PrepareGlass()
+    {
+        if (!GlassOn || _hwnd == IntPtr.Zero || _mode == Mode.Expanded || _live?.Running == true) return;
+        if (_preShot != null && DateTime.Now - _preShotAt < TimeSpan.FromMilliseconds(700)) return;
+        EnsureGlass();
+        var grab = GlassCapture.Grab(_hwnd);
+        if (grab is not { } g) return;
+        _preShot = GlassCapture.ProcessAsync(g.px, g.w, g.h);
+        _preShotAt = DateTime.Now;
+    }
+
+    private async void UsePreparedGlass(System.Threading.Tasks.Task<GlassCapture.Shot> pre)
+    {
+        GlassCapture.Shot shot;
+        try { shot = await pre; } catch { return; }
+        if (_mode == Mode.Expanded) ShowGlass(shot);
     }
 
     private static void SavePng(BitmapSource src, string path)
@@ -668,18 +731,49 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
     private void StartGlass()
     {
         if (!GlassOn) return;
-        CaptureGlass(true);
-        // Keep up with what is behind (a video, a page scrolling), but never mid-animation.
+        var pre = _preShot;
+        _preShot = null;
+        if (pre != null && DateTime.Now - _preShotAt < TimeSpan.FromSeconds(3)) UsePreparedGlass(pre);
+        else _glassAfterOpen = true; // opened without a hover (shortcut, tray): photograph once it has opened
+        // Live: keep up with what is behind (a video, a page scrolling) once per screen refresh.
+        if (_hwnd != IntPtr.Zero)
+        {
+            _live ??= new GlassLive(_hwnd, Dispatcher, ApplyLive);
+            _live.Paused = true; // the opening animation runs first
+            if (_live.Start()) { _glassAfterOpen = false; return; }
+        }
+        // Fallback: a new picture now and then, but never mid-animation.
         _glassTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(1200), DispatcherPriority.Background, (_, _) =>
         {
             if (_mode != Mode.Expanded) { _glassTimer!.Stop(); return; }
-            if (!_animating && Glass.Visibility == Visibility.Visible) CaptureGlass(false);
+            if (!_animating && Glass.Visibility == Visibility.Visible) CaptureGlass();
         }, Dispatcher);
         _glassTimer.Start();
     }
 
+    private GlassLive? _live;
+    private WriteableBitmap? _liveSharp, _liveFrost;
+
+    /// <summary>Puts a live frame into the glass. Reuses the same two bitmaps, so nothing is allocated per frame.</summary>
+    private void ApplyLive(GlassLive.Frame f)
+    {
+        if (_mode != Mode.Expanded || !GlassOn) return;
+        EnsureGlass();
+        if (_liveSharp is not { } sb || sb.PixelWidth != f.W || sb.PixelHeight != f.H)
+            _liveSharp = sb = new WriteableBitmap(f.W, f.H, 96, 96, PixelFormats.Bgr32, null);
+        if (_liveFrost is not { } fb || fb.PixelWidth != f.FW || fb.PixelHeight != f.FH)
+            _liveFrost = fb = new WriteableBitmap(f.FW, f.FH, 96, 96, PixelFormats.Bgr32, null);
+        sb.WritePixels(new Int32Rect(0, 0, f.W, f.H), f.Sharp, f.W * 4, 0);
+        fb.WritePixels(new Int32Rect(0, 0, f.FW, f.FH), f.Frost, f.FW * 4, 0);
+        bool first = GlassImage.Source != sb;
+        if (first) GlassImage.Source = sb;
+        if (_frost!.ImageSource != fb) _frost.ImageSource = fb;
+        if (first) Materialize();
+    }
+
     private void ReleaseGlass()
     {
+        _live?.Stop();
         _glassTimer?.Stop();
         GlassImage.Source = null;
         if (_frost != null) _frost.ImageSource = null;
@@ -728,12 +822,74 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         Ios(_top, response, 1);
     }
 
+    /// <summary>
+    /// Springs that arrive in the given time: within 0.1%, a fraction of a pixel, so no slow crawl
+    /// is left after it. Critical damping gets there at omega*t = 9.23; an underdamped spring when
+    /// its envelope e^(-zeta*omega*t) falls to 0.1%.
+    /// </summary>
+    private void ConfigureMs(int ms, double zeta)
+    {
+        double d = Math.Clamp(ms, 60, 3000) / 1000.0;
+        zeta = Math.Clamp(zeta, 0.55, 1);
+        double response = zeta >= 0.999 ? 2 * Math.PI * d / 9.23 : 2 * Math.PI * zeta * d / 6.91;
+        Configure(response * Math.Clamp(_settings.MotionSpeed, 0.4, 2.5), zeta); // exact: Configure divides by speed
+    }
+
     private void StartAnimating()
     {
         if (_animating) return;
         _animating = true;
-        _lastRender = TimeSpan.Zero;
+        // If the render loop is already ticking (warmed up during the hover wait), continue from its last frame.
+        _startFrames = 0;
+        _lastRender = _clock.Elapsed.TotalMilliseconds - _lastWarmTick < 2 * FramePeriodMs ? _lastWarmRender : TimeSpan.Zero;
         CompositionTarget.Rendering += OnFrame;
+    }
+
+    // ── Frame pacing ──
+    // WPF's render loop sleeps while nothing changes, and its first frames after waking are late:
+    // that was the hitch at the very start of every open and close. Listening for frames is not
+    // enough to keep it awake (unchanged frames are never drawn), so during the hover and leave
+    // waits, and while the island is open, one invisible pixel under the island changes every
+    // frame. The pipeline is then already running when the animation starts.
+    private static readonly double FramePeriodMs = 1000.0 / Native.RefreshRate();
+    private TimeSpan _lastRender, _lastWarmRender;
+    private double _lastWarmTick = -1e9, _warmUntil;
+    private int _startFrames;
+    private System.Windows.Shapes.Rectangle? _keepAwake;
+    private bool _warming;
+
+    /// <summary>Starts the render loop a little before an animation so its first frame lands on time.</summary>
+    private void WarmUp(double ms = 400, bool content = false)
+    {
+        _warmUntil = Math.Max(_warmUntil, _clock.Elapsed.TotalMilliseconds + ms);
+        // Show the panel (still transparent) so it is drawn once now, not in the middle of opening.
+        if (content && ExpandedView.Visibility != Visibility.Visible) ExpandedView.Visibility = Visibility.Visible;
+        if (_warming) return;
+        _warming = true;
+        CompositionTarget.Rendering += WarmTick;
+    }
+
+    private void WarmTick(object? sender, EventArgs e)
+    {
+        double now = _clock.Elapsed.TotalMilliseconds;
+        _lastWarmTick = now;
+        _lastWarmRender = ((RenderingEventArgs)e).RenderingTime;
+        if (_keepAwake == null)
+        {
+            // Under the top centre of the island, which is always black, at 1-2% opacity: never visible.
+            _keepAwake = new System.Windows.Shapes.Rectangle
+            {
+                Width = 2, Height = 2, Fill = Brushes.Black, Opacity = 0.01, IsHitTestVisible = false,
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(WinW / 2 - 1, 0, 0, 0),
+            };
+            ((Grid)Content).Children.Insert(0, _keepAwake);
+        }
+        _keepAwake.Opacity = _keepAwake.Opacity > 0.015 ? 0.01 : 0.02;
+        if (now < _warmUntil || _animating) return;
+        CompositionTarget.Rendering -= WarmTick;
+        _warming = false;
+        if (!_animating) Materialize();   // hides the panel again if it never opened
     }
 
     private void OnFrame(object? sender, EventArgs e)
@@ -741,9 +897,14 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         // Step by the frame's presentation time, not by when this callback happened to run:
         // wall-clock gaps jitter by several ms, which made the motion stutter.
         var rt = ((RenderingEventArgs)e).RenderingTime;
+        if (_warming) { _lastWarmTick = _clock.Elapsed.TotalMilliseconds; _lastWarmRender = rt; }
         if (rt == _lastRender) return;
-        double dt = _lastRender == TimeSpan.Zero ? 1 / 60.0 : Math.Clamp((rt - _lastRender).TotalSeconds, 1 / 500.0, 1 / 20.0);
+        double dt = _lastRender == TimeSpan.Zero ? FramePeriodMs / 1000.0 : Math.Clamp((rt - _lastRender).TotalSeconds, 1 / 500.0, 1 / 20.0);
         _lastRender = rt;
+        // The first frames after the loop wakes are often late. Stepping by the full gap made the
+        // island jump right at the start of every open and close; there it only ever advances one
+        // refresh per shown frame, so the start is always continuous.
+        if (_startFrames < 10) { _startFrames++; dt = Math.Min(dt, FramePeriodMs / 1000.0); }
 
         int steps = Math.Max(1, (int)Math.Ceiling(dt * 240));
         double h = dt / steps;
@@ -776,7 +937,26 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         {
             CompositionTarget.Rendering -= OnFrame;
             _animating = false;
+            if (_live != null) _live.Paused = Backdrop.Opacity >= 0.995;
+            if (_shadowAfterOpen) { _shadowAfterOpen = false; if (_mode == Mode.Expanded) ShowShadow(); }
+            if (_glassAfterOpen) { _glassAfterOpen = false; if (_mode == Mode.Expanded) CaptureGlass(); }
         }
+    }
+
+    private bool _shadowAfterOpen;
+
+    private void HideShadow()
+    {
+        ShadowShape.BeginAnimation(OpacityProperty, null);
+        ShadowShape.Opacity = 0;
+        ShadowShape.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowShadow()
+    {
+        if (ShadowShape.Visibility == Visibility.Visible) return;
+        ShadowShape.Visibility = Visibility.Visible;
+        ShadowShape.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = new QuadraticEase() });
     }
 
     private (double w, double h, double r, double s, bool notch) _builtShape;
@@ -817,7 +997,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         if (PeekView.Height != h) PeekView.Height = h;
 
         Materialize();
-        LayoutHero(w);
+        LayoutHero();
         LayoutTabDrop();
     }
 
@@ -886,7 +1066,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
     /// closed and open spots, driven by the same spring as the island itself.
     /// Coordinates are measured from the island's centre so both layouts stay aligned.
     /// </summary>
-    private void LayoutHero(double curW)
+    private void LayoutHero()
     {
         double p = _p.Value;            // may overshoot a touch: that is the physical feel
         double pc = Math.Clamp(p, 0, 1);
@@ -1282,6 +1462,8 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         {
             _hoverTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(0, _settings.HoverDelayMs));
             _hoverTimer.Start();
+            PrepareGlass();
+            WarmUp(Math.Max(0, _settings.HoverDelayMs) + 300, content: true);
         }
     }
 
@@ -1300,6 +1482,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
     private void LeaveTick()
     {
         if (_mode != Mode.Expanded) { _leaveTimer.Stop(); return; }
+        WarmUp(150); // open: keep the render loop awake so closing starts on time, whatever the close delay
         if (Mouse.Captured != null || PointerOverIsland())
         {
             _outsideSince = null;
@@ -1307,7 +1490,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
             return;
         }
         if (DateTime.Now < _pinnedUntil) return;
-        _outsideSince ??= DateTime.Now;
+        if (_outsideSince == null) { _outsideSince = DateTime.Now; WarmUp(Math.Max(0, _settings.CloseDelayMs) + 300); }
         if (DateTime.Now - _outsideSince.Value > TimeSpan.FromMilliseconds(Math.Max(0, _settings.CloseDelayMs)))
             SetMode(Mode.Compact);
     }
@@ -2032,6 +2215,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
                 : (_privacy?.MicApp.Length > 0 ? _privacy.MicApp + " · " : "On a call · ") + callTime;
         }
 
+        if (_mode == Mode.Compact && _widgets?.Any == true && Widgets.Refresh(now) && WidgetsShown) UpdateTargets();
         if (_mode != Mode.Expanded) return;
 
         ClockText.Text = now.ToString(_settings.Clock24h ? "HH:mm" : "h:mm");
@@ -2077,25 +2261,135 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
 
     private void WatchTick()
     {
+        if (_escFocus != IntPtr.Zero) { UpdateEscWatch(); return; } // Crest has the focus for now: the game is still there
         bool fullscreen = false;
         if (_settings.HideInFullscreen && Native.SHQueryUserNotificationState(out int state) == 0)
             fullscreen = state is Native.QUNS_BUSY or Native.QUNS_RUNNING_D3D_FULL_SCREEN or Native.QUNS_PRESENTATION_MODE;
 
+        _fullscreen = fullscreen;
         if (fullscreen && !_hiddenForFullscreen && _mode != Mode.Expanded)
-        {
-            _hiddenForFullscreen = true;
-            BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(200)));
-            Island.IsHitTestVisible = false;
-            UpdateVisualizerState();
-            UpdatePet();
-        }
+            HideForFullscreen();
         else if (!fullscreen && _hiddenForFullscreen)
-        {
             ShowFromFullscreen();
-        }
+        else if (!fullscreen && _escShown)
+            _escShown = false;              // fullscreen ended while Esc held the island open: just stay
+        UpdateEscWatch();
 
         if (!_hiddenForFullscreen)
             Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+    }
+
+    private void HideForFullscreen()
+    {
+        _hiddenForFullscreen = true;
+        BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(200)));
+        Island.IsHitTestVisible = false;
+        UpdateVisualizerState();
+        UpdatePet();
+    }
+
+    // ── Hold Esc in fullscreen ──
+    // Esc is only read (GetAsyncKeyState), never intercepted, and only while the island is hidden
+    // for fullscreen or held open by Esc. A short tap does nothing; holding it opens the island,
+    // and letting go closes and hides it again.
+    private const int EscHoldMs = 350;
+    private DispatcherTimer? _escTimer;
+    private DateTime? _escDownSince;
+    private bool _escShown, _fullscreen;
+    private int _escTicks;
+
+    private void UpdateEscWatch()
+    {
+        bool watch = _settings.HoldEscInFullscreen && (_hiddenForFullscreen || _escShown);
+        if (!watch) { _escTimer?.Stop(); _escDownSince = null; return; }
+        if (_escTimer == null)
+        {
+            _escTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(30), DispatcherPriority.Input, (_, _) => EscTick(), Dispatcher);
+            // Esc already down when fullscreen started (or the island just hid) has to be let go first.
+            _escDownSince = EscDown() ? DateTime.MaxValue : null;
+        }
+        if (!_escTimer.IsEnabled)
+        {
+            _escDownSince = EscDown() ? DateTime.MaxValue : null;
+            _escTimer.Start();
+        }
+    }
+
+    private static bool EscDown() => (Native.GetAsyncKeyState(Native.VK_ESCAPE) & 0x8000) != 0;
+
+    private void EscTick()
+    {
+        bool down = EscDown();
+        if (_escShown)
+        {
+            if (down)
+            {
+                _pinnedUntil = DateTime.Now.AddSeconds(1);
+                // Games put their own window back on top now and then: keep the island above it.
+                if (++_escTicks % 8 == 0)
+                    Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+                return;
+            }
+            _escShown = false;
+            _escDownSince = null;
+            _pinnedUntil = default;
+            ReturnFocus();
+            if (_mode == Mode.Expanded) SetMode(Mode.Compact);
+            if (_fullscreen && _settings.HideInFullscreen) HideForFullscreen();
+            UpdateEscWatch();
+            return;
+        }
+        if (!down) { _escDownSince = null; return; }
+        if (_escDownSince == null)
+        {
+            _escDownSince = DateTime.Now;
+            WarmUp(EscHoldMs + 300, content: true); // the render loop is running by the time it opens
+            PrepareGlass();
+            return;
+        }
+        if (!_hiddenForFullscreen || DateTime.Now - _escDownSince.Value < TimeSpan.FromMilliseconds(EscHoldMs)) return;
+        _escShown = true;
+        ShowFromFullscreen();
+        SetMode(Mode.Expanded);
+        _pinnedUntil = DateTime.Now.AddSeconds(1);
+        Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+        TakeFocus();
+    }
+
+    // A game holds the mouse (hidden, locked to its window) for as long as it has the focus.
+    // While Esc holds the island open, Crest takes the focus, so the game lets go and the pointer
+    // is free; on release the focus goes straight back to the game, which takes the mouse again.
+    private IntPtr _escFocus;
+
+    private void TakeFocus()
+    {
+        var fg = Native.GetForegroundWindow();
+        if (fg == IntPtr.Zero || fg == _hwnd) return;
+        long ex = Native.GetWindowLongPtr(_hwnd, Native.GWL_EXSTYLE).ToInt64();
+        Native.SetWindowLongPtr(_hwnd, Native.GWL_EXSTYLE, new IntPtr(ex & ~Native.WS_EX_NOACTIVATE));
+        // Windows only lets the app the user is using hand over the focus: join its input queue for a moment.
+        uint other = Native.GetWindowThreadProcessId(fg, IntPtr.Zero), me = Native.GetCurrentThreadId();
+        bool joined = other != 0 && other != me && Native.AttachThreadInput(me, other, true);
+        bool ok = Native.SetForegroundWindow(_hwnd);
+        if (joined) Native.AttachThreadInput(me, other, false);
+        if (ok)
+        {
+            _escFocus = fg;
+            Native.ClipCursor(IntPtr.Zero);
+        }
+        else Native.SetWindowLongPtr(_hwnd, Native.GWL_EXSTYLE, new IntPtr(ex));
+    }
+
+    private void ReturnFocus()
+    {
+        var game = _escFocus;
+        if (game == IntPtr.Zero) return;
+        _escFocus = IntPtr.Zero;
+        long ex = Native.GetWindowLongPtr(_hwnd, Native.GWL_EXSTYLE).ToInt64();
+        Native.SetWindowLongPtr(_hwnd, Native.GWL_EXSTYLE, new IntPtr(ex | Native.WS_EX_NOACTIVATE));
+        if (!Native.IsWindow(game)) return;
+        if (Native.IsIconic(game)) Native.ShowWindow(game, Native.SW_RESTORE); // exclusive fullscreen minimises on focus loss
+        Native.SetForegroundWindow(game);
     }
 
     private void ShowFromFullscreen()
@@ -2179,8 +2473,8 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
             else HeaderBattery.Visibility = _settings.ShowBattery ? Visibility.Visible : Visibility.Collapsed;
             HeaderMic.Visibility = _settings.ShowMicButton ? Visibility.Visible : Visibility.Collapsed;
             IslandShape.StrokeThickness = _settings.RimLight ? 1 : 0;
-            ShadowShape.BeginAnimation(OpacityProperty, null);
-            ShadowShape.Opacity = _mode == Mode.Expanded && _settings.Shadow ? 1 : 0;
+            if (_mode == Mode.Expanded && _settings.Shadow && !_animating) ShowShadow();
+            else if (!_settings.Shadow) HideShadow();
             HeroArt.Cursor = _settings.ArtOpensSource ? Cursors.Hand : Cursors.Arrow;
             Viz.SetGlow(_settings.VizGlow);
             ApplyBackdropLook();
@@ -2195,6 +2489,8 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
                 _media.Reconsider();
                 OnMediaChanged();
             }
+            Widgets.Rebuild(_settings);
+            Widgets.Refresh(DateTime.Now);
             UpdateTargets();
             UpdateHero();
             UpdateVisualizerState();
@@ -2215,7 +2511,7 @@ GPhone = "", GHeadphones = "", GHangUp = "", GWarn = "";
         if (_settingsWindow == null)
         {
             _settingsWindow = new SettingsWindow(_settings);
-            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            _settingsWindow.Closed += (_, _) => { _settingsWindow = null; ScheduleTrim(2); };
             _settingsWindow.Show();
         }
         if (_settingsWindow.WindowState == WindowState.Minimized) _settingsWindow.WindowState = WindowState.Normal;

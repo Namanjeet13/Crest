@@ -116,7 +116,10 @@
                         <TextBlock x:Name="CallPillTime" Margin="8,0,0,0" FontSize="12.5" FontWeight="SemiBold"
                                    Foreground="{StaticResource Green}" VerticalAlignment="Center" Text="0:00" />
                     </StackPanel>
+                    <!-- Idle widgets (clock, battery, CPU...): filled in code from the Closed Island settings -->
+                    <StackPanel x:Name="IdleLeft" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" IsHitTestVisible="False" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <StackPanel x:Name="IdleRight" Orientation="Horizontal" VerticalAlignment="Center" IsHitTestVisible="False" />
                         <Ellipse x:Name="MicDot" Width="6" Height="6" Margin="6,0,0,0" Fill="{StaticResource Orange}" Visibility="Collapsed" />
                         <Ellipse x:Name="CamDot" Width="6" Height="6" Margin="4,0,0,0" Fill="{StaticResource Green}" Visibility="Collapsed" />
                     </StackPanel>
@@ -279,7 +282,7 @@
                                     </Border>
                                 </StackPanel>
                                 <TextBlock x:Name="HeaderBattery" FontSize="11.5" FontWeight="Medium" Foreground="{StaticResource FgDim}" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                <TextBlock x:Name="ClockText" FontFamily="{StaticResource DisplayFont}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,4,0" Text="00:00" />
+                                <TextBlock x:Name="ClockText" Typography.NumeralAlignment="Tabular" FontFamily="{StaticResource DisplayFont}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,4,0" Text="00:00" />
                                 <Button x:Name="HeaderMic" Style="{StaticResource IconButton}" Width="28" Height="28" FontSize="13"
                                         Content="&#xE720;" ToolTip="Mute microphone everywhere (Ctrl+Alt+M)" Click="Mic_Click" />
                             </StackPanel>
@@ -426,7 +429,7 @@
                                     <TextBlock Style="{StaticResource Caption}" FontWeight="Medium" Text="CPU" />
                                     <Grid Width="74" Height="74" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,4,0,0">
                                         <c:Ring x:Name="CpuRing" Thickness="8" Stroke="{StaticResource Green}" />
-                                        <TextBlock x:Name="CpuText" FontFamily="{StaticResource DisplayFont}" FontSize="18" FontWeight="SemiBold" Text="–"
+                                        <TextBlock x:Name="CpuText" Typography.NumeralAlignment="Tabular" FontFamily="{StaticResource DisplayFont}" FontSize="18" FontWeight="SemiBold" Text="–"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     </Grid>
                                     <TextBlock x:Name="UptimeText" Style="{StaticResource Caption}" FontSize="10.5" VerticalAlignment="Bottom" HorizontalAlignment="Center" />
@@ -437,7 +440,7 @@
                                     <TextBlock Style="{StaticResource Caption}" FontWeight="Medium" Text="Memory" />
                                     <Grid Width="74" Height="74" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,4,0,0">
                                         <c:Ring x:Name="RamRing" Thickness="8" Stroke="{StaticResource Blue}" />
-                                        <TextBlock x:Name="RamText" FontFamily="{StaticResource DisplayFont}" FontSize="18" FontWeight="SemiBold" Text="–"
+                                        <TextBlock x:Name="RamText" Typography.NumeralAlignment="Tabular" FontFamily="{StaticResource DisplayFont}" FontSize="18" FontWeight="SemiBold" Text="–"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     </Grid>
                                     <TextBlock x:Name="RamDetail" Style="{StaticResource Caption}" FontSize="10.5" VerticalAlignment="Bottom" HorizontalAlignment="Center" />
@@ -448,7 +451,7 @@
                                     <TextBlock Style="{StaticResource Caption}" FontWeight="Medium" Text="Battery" />
                                     <Grid Width="74" Height="74" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,4,0,0">
                                         <c:Ring x:Name="BatRing" Thickness="8" Stroke="{StaticResource Green}" />
-                                        <TextBlock x:Name="BatText" FontFamily="{StaticResource DisplayFont}" FontSize="18" FontWeight="SemiBold" Text="–"
+                                        <TextBlock x:Name="BatText" Typography.NumeralAlignment="Tabular" FontFamily="{StaticResource DisplayFont}" FontSize="18" FontWeight="SemiBold" Text="–"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     </Grid>
                                     <TextBlock x:Name="BatDetail" Style="{StaticResource Caption}" FontSize="10.5" VerticalAlignment="Bottom" HorizontalAlignment="Center" />

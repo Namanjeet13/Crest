@@ -72,8 +72,8 @@ public sealed class Waveform : FrameworkElement
         double mid = h / 2;
 
         // Echo layer: one band out of step and a little taller, for depth.
-        dc.DrawGeometry(_back, null, Build(w, h, mid, n, bands, shift: 1, gain: 1.12, wobble: 0.6));
-        var front = Build(w, h, mid, n, bands, shift: 0, gain: 1.0, wobble: 0);
+        dc.DrawGeometry(_back, null, Build(w, mid, n, bands, shift: 1, gain: 1.12, wobble: 0.6));
+        var front = Build(w, mid, n, bands, shift: 0, gain: 1.0, wobble: 0);
         if (_glowOn)
         {
             dc.DrawGeometry(null, _haloWide, front);
@@ -90,7 +90,7 @@ public sealed class Waveform : FrameworkElement
         return pen;
     }
 
-    private Geometry Build(double w, double h, double mid, int n, int bands, int shift, double gain, double wobble)
+    private Geometry Build(double w, double mid, int n, int bands, int shift, double gain, double wobble)
     {
         var top = new Point[n];
         for (int j = 0; j < n; j++)

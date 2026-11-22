@@ -14,6 +14,15 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Started by a browser as the Crest Downloads extension's native host: no window, no single-instance check.
+        if (Services.BrowserDownloads.IsHostLaunch(e.Args))
+        {
+            int code = 0;
+            try { code = Services.BrowserDownloads.RunHost(); } catch { code = 1; }
+            Environment.Exit(code);
+            return;
+        }
+
         _single = new Mutex(true, "Crest.SingleInstance.v1", out bool created);
         if (!created)
         {
@@ -30,6 +39,8 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, a) => Log(a.ExceptionObject as Exception);
 
         base.OnStartup(e);
+        // The browser extension isn't listed yet, so Crest doesn't register its native host.
+        // Services.BrowserDownloads.Start();
         new NotchWindow().Show();
     }
 

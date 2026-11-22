@@ -445,8 +445,7 @@ public sealed class PixelPet : Image
     }
 
     private static readonly string[] BallRows = { ".XX.", "XXXX", "XXXX", ".XX." };
-    private static readonly string[] Twinkle = { ".X.", "XXX", ".X." };
-    private const uint BallRed = 0xFFE5604F, BallShine = 0xFFFFD6CC, Spark = 0xFFFFE9A8;
+    private const uint BallRed = 0xFFE5604F, BallShine = 0xFFFFD6CC;
 
     /// <summary>The ball, just past the pet's nose; gy is its top row.</summary>
     private void Ball(double gy, bool flip)

@@ -28,6 +28,16 @@ Windows SmartScreen may warn you because the installer isn't code-signed. Choose
 
 To remove Crest, go to **Settings › Apps › Installed apps › Crest › Uninstall**.
 
+## What's new in 1.0.2
+
+- **Widgets on the closed island**: clock, date, battery, CPU, memory, network speed, countdown, day progress, uptime and custom text, each with its own options.
+- **Redesigned settings**: fewer, clearer pages with search, plainer wording and a slim scroll bar.
+- **Smoother animations**: set how fast the island opens and closes in milliseconds, and the stutter is gone.
+- **Hold Esc in fullscreen**, even in a game, to bring the island back and free the pointer while you hold it.
+- **Live liquid glass** instead of captured frames, with a softer blend into the frost.
+- **Inter typeface** throughout.
+- **Lighter and faster**: less memory at idle and leftover code removed.
+
 ## What it does
 
 <table>
@@ -60,9 +70,11 @@ To remove Crest, go to **Settings › Apps › Installed apps › Crest › Unin
 - **Clipboard history** (Ctrl+Alt+V), with pinning. It's encrypted on disk with Windows DPAPI and skips anything a password manager marks as private.
 - **Quick controls.** Volume, brightness on laptops, Wi-Fi, Bluetooth, Snip, Night light, and a colour picker (Ctrl+Alt+C).
 - **System.** CPU, memory, battery and uptime.
+- **Widgets on the closed island.** Clock, date, battery, CPU, memory, network speed, a countdown, day progress, uptime or your own text, on either side of the notch. Each one has its own options.
+- **Liquid glass.** The open island shows what's behind it live, through a glass edge that blends softly into the frost.
 - **Pixel pet.** It blinks, yawns and curls up asleep when you're away, and shows hearts when you rest the pointer on it. It hides for music, calls and fullscreen.
 - **Updates itself.** When a new version is out, the island tells you. Install it from Settings › About, and Crest checks the download, updates and reopens.
-- **Settings.** Shape, size, hide until hover, hide in fullscreen, start with Windows, visualizer, peeks, Discord and pet.
+- **Settings.** Shape, size, how fast it opens and closes (in milliseconds), hide until hover, hide in fullscreen (hold Esc to bring it back, even in games), start with Windows, widgets, visualizer, peeks, Discord and pet. Search finds any setting by name.
 
 ### Keyboard shortcuts
 
@@ -120,3 +132,5 @@ Bug reports, ideas and pull requests are all welcome. See the [roadmap](ROADMAP.
 ## Licence
 
 [MIT](LICENSE). Crest isn't affiliated with Apple. "Dynamic Island" describes the idea, not a product.
+
+Crest ships the [Inter](https://rsms.me/inter/) typeface by Rasmus Andersson, under the [SIL Open Font License 1.1](src/Crest/Fonts/Inter-LICENSE.txt).

@@ -11,8 +11,8 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Crest Uninstaller")]
 [assembly: AssemblyProduct("Crest")]
-[assembly: AssemblyVersion("1.0.1.0")]
-[assembly: AssemblyFileVersion("1.0.1.0")]
+[assembly: AssemblyVersion("1.0.2.0")]
+[assembly: AssemblyFileVersion("1.0.2.0")]
 
 namespace CrestUninstall
 {
@@ -56,6 +56,10 @@ namespace CrestUninstall
                 using (var run = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
                     if (run != null) run.DeleteValue("Crest", false);
                 Registry.CurrentUser.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\Crest", false);
+                // The browser extension's native messaging host.
+                foreach (var k in new[] { @"Software\Google\Chrome", @"Software\Microsoft\Edge", @"Software\BraveSoftware\Brave-Browser",
+                                          @"Software\Vivaldi", @"Software\Chromium", @"Software\Mozilla" })
+                    try { Registry.CurrentUser.DeleteSubKeyTree(k + @"\NativeMessagingHosts\com.crest.downloads", false); } catch { }
             }
             catch { }
 

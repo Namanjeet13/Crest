@@ -31,7 +31,7 @@ namespace CrestSetup
 {
     internal static class Info
     {
-        public const string Version = "1.0.1";
+        public const string Version = "1.0.2";
         public const string Name = "Crest";
         public const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Crest";
         public const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";

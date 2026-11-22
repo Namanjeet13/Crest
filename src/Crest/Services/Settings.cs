@@ -23,9 +23,14 @@ public sealed class Settings
     public string PetCorner { get; set; } = "Left";
     public bool StartWithWindows { get; set; }
     public bool HideInFullscreen { get; set; } = true;
+    /// <summary>While the island is hidden for fullscreen, holding Esc shows it open until Esc is let go.</summary>
+    public bool HoldEscInFullscreen { get; set; } = true;
     public bool OpenOnClickOnly { get; set; }
     public int HoverDelayMs { get; set; } = 120;
     public int CloseDelayMs { get; set; } = 300;
+    /// <summary>How long the island takes to open, and to close, in milliseconds.</summary>
+    public int OpenAnimMs { get; set; } = 400;
+    public int CloseAnimMs { get; set; } = 250;
     public int PinSeconds { get; set; } = 6;
 
     // ── Island ──
@@ -43,6 +48,23 @@ public sealed class Settings
     public bool LiquidGlass { get; set; } = true;
     public int GlassDim { get; set; } = 45;
     public int GlassFrost { get; set; } = 100;
+
+    // ── Closed island widgets ──
+    public ClockItem WClock { get; set; } = new() { Side = "Right" };
+    public DateItem WDate { get; set; } = new();
+    public BatteryItem WBattery { get; set; } = new();
+    public LoadItem WCpu { get; set; } = new();
+    public LoadItem WRam { get; set; } = new();
+    public NetItem WNet { get; set; } = new();
+    public TransferItem WTransfer { get; set; } = new();
+    public CountdownItem WCountdown { get; set; } = new();
+    public ProgressItem WProgress { get; set; } = new();
+    public UptimeItem WUptime { get; set; } = new();
+    public TextItem WText { get; set; } = new();
+    /// <summary>The idle island widens so the widgets never squeeze the pet.</summary>
+    public bool WidgetsGrow { get; set; } = true;
+    public int WidgetGap { get; set; } = 10;
+    public int WidgetOpacity { get; set; } = 90;
 
     // ── Music ──
     /// <summary>App names (spotify, vlc...) or website domains (open.spotify.com, youtube.com).</summary>

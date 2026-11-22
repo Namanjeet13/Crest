@@ -53,10 +53,19 @@ internal static class GlassCapture
         var sharp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgr32, null, px, w * 4);
         sharp.Freeze();
 
-        // Frost: a quarter-size copy, box-blurred three times (close to a Gaussian).
+        byte[] outPx = Array.Empty<byte>(); float[] a = Array.Empty<float>(), tmp = Array.Empty<float>();
+        FrostInto(px, w, h, ref outPx, ref a, ref tmp, out int fw, out int fh);
+        var frost = BitmapSource.Create(fw, fh, 96, 96, PixelFormats.Bgr32, null, outPx, fw * 4);
+        frost.Freeze();
+        return new Shot(sharp, frost);
+    }
+
+    /// <summary>The frost: a quarter-size copy, box-blurred three times (close to a Gaussian). Reuses the given buffers.</summary>
+    public static void FrostInto(byte[] px, int w, int h, ref byte[] outPx, ref float[] a, ref float[] tmp, out int fw, out int fh)
+    {
         const int f = 4;
-        int fw = Math.Max(1, w / f), fh = Math.Max(1, h / f);
-        var a = new float[fw * fh * 3];
+        fw = Math.Max(1, w / f); fh = Math.Max(1, h / f);
+        if (a.Length != fw * fh * 3) { a = new float[fw * fh * 3]; tmp = new float[a.Length]; }
         for (int y = 0; y < fh; y++)
             for (int x = 0; x < fw; x++)
             {
@@ -69,14 +78,13 @@ internal static class GlassCapture
                 int o = (y * fw + x) * 3;
                 a[o] = b; a[o + 1] = g; a[o + 2] = r;
             }
-        var tmp = new float[a.Length];
         int rad = Math.Max(3, w / 100); // three passes: a soft, wide frost, like iOS
         for (int pass = 0; pass < 3; pass++)
         {
             BoxH(a, tmp, fw, fh, rad);
             BoxV(tmp, a, fw, fh, rad);
         }
-        var outPx = new byte[fw * fh * 4];
+        if (outPx.Length != fw * fh * 4) outPx = new byte[fw * fh * 4];
         float scale = 1f / (f * f);
         for (int i = 0, o = 0; i < a.Length; i += 3, o += 4)
         {
@@ -85,9 +93,6 @@ internal static class GlassCapture
             outPx[o + 2] = (byte)Math.Min(255, a[i + 2] * scale);
             outPx[o + 3] = 255;
         }
-        var frost = BitmapSource.Create(fw, fh, 96, 96, PixelFormats.Bgr32, null, outPx, fw * 4);
-        frost.Freeze();
-        return new Shot(sharp, frost);
     }
 
     public static Task<Shot> ProcessAsync(byte[] px, int w, int h) => Task.Run(() => Process(px, w, h));
