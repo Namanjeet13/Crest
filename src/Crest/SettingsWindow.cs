@@ -326,8 +326,13 @@ public sealed class SettingsWindow : Window
             Toggle("Any app", "Anything Windows reports as playing.", () => _s.AnyMediaSource, v => _s.AnyMediaSource = v, resettable: false, reveal: true));
         if (_s.AnyMediaSource) return;
 
+        Group("Music services", MusicPreset.All.Select(p => (object)Toggle(p.Name, p.Sub,
+            () => p.Entries.Any(_s.MediaSources.Contains),
+            v => { _s.MediaSources.RemoveAll(e => p.Entries.Contains(e)); if (v) _s.MediaSources.AddRange(p.Entries); },
+            resettable: false)).ToArray());
+
         var rows = new List<UIElement>();
-        foreach (var src in _s.MediaSources.ToList())
+        foreach (var src in _s.MediaSources.Where(e => !MusicPreset.IsPreset(e)).ToList())
         {
             bool site = src.Contains('.');
             var g = new DockPanel { Margin = new Thickness(14, 0, 10, 0), Height = 46, Tag = src + (site ? " website" : " app") };
@@ -347,19 +352,22 @@ public sealed class SettingsWindow : Window
             g.Children.Add(t);
             rows.Add(g);
         }
-        if (rows.Count == 0) rows.Add(Note("Nothing can show music on the island yet. Add an app or a website below."));
+        if (rows.Count == 0) rows.Add(Note("Add any other app or website below."));
 
         var box = new TextBox
         {
             Background = Brushes.Transparent, Foreground = Fg, CaretBrush = Fg, BorderThickness = new Thickness(0),
             VerticalContentAlignment = VerticalAlignment.Center, FontSize = 13, Padding = new Thickness(0)
         };
-        var hint = new TextBlock { Text = "Add an app or website: spotify, vlc, music.youtube.com…", Foreground = Faint, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center };
+        var hint = new TextBlock { Text = "Add an app or website: vlc, foobar2000, soundcloud.com…", Foreground = Faint, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center };
         box.TextChanged += (_, _) => hint.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         void Add()
         {
             var v = box.Text.Trim().ToLowerInvariant().Replace("https://", "").Replace("http://", "").TrimEnd('/');
             if (v.EndsWith(".exe")) v = v[..^4];
+            if (v.StartsWith("www.")) v = v[4..];
+            // App names are matched without spaces: "apple music" is the app "applemusic".
+            if (!v.Contains('.')) v = v.Replace(" ", "");
             if (v.Length == 0 || _s.MediaSources.Contains(v)) return;
             _s.MediaSources.Add(v);
             Commit();
@@ -378,7 +386,7 @@ public sealed class SettingsWindow : Window
         field.Children.Add(hint);
         field.Children.Add(box);
         row.Children.Add(field);
-        Group("Allowed", rows, row,
+        Group("Other apps and websites", rows, row,
             Note("For an app, type its name. For a website, type its address. Websites work in any browser."));
     }
 
@@ -525,8 +533,10 @@ public sealed class SettingsWindow : Window
                 try { System.Diagnostics.Process.Start("explorer.exe", App.DataDir); } catch { }
             })));
         Group("Updates", UpdateRow(),
-            Toggle("Check automatically", "Every six hours. Nothing installs without you.",
-                () => _s.AutoUpdateCheck, v => _s.AutoUpdateCheck = v));
+            Toggle("Check automatically", "Every six hours.",
+                () => _s.AutoUpdateCheck, v => _s.AutoUpdateCheck = v, reveal: true),
+            If(_s.AutoUpdateCheck, Toggle("Install updates automatically", "Quietly, while you aren't using the island. Off: you choose when.",
+                () => _s.AutoInstallUpdates, v => _s.AutoInstallUpdates = v)));
         Group(null, Note("Crest is free and open source at github.com/Namanjeet13/Crest."));
     }
 

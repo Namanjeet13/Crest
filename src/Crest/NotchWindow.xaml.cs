@@ -116,7 +116,8 @@ public partial class NotchWindow : Window
         TabBar.PreviewMouseLeftButtonDown += (_, e) => _dragStartX = e.GetPosition(TabIcons).X;
         TabBar.PreviewMouseMove += TabBar_Move;
         TabBar.PreviewMouseLeftButtonUp += TabBar_Up;
-        TabBar.LostMouseCapture += (_, _) => { if (_dragging) { _dragging = false; _dragStartX = null; MoveTabDrop(); } };
+        // LostMouseCapture bubbles: the tab button giving up its own capture when the bar takes it must not end the drag.
+        TabBar.LostMouseCapture += (_, e) => { if (e.OriginalSource == TabBar) CancelTabDrag(); };
 
         Position();
         WireMove();
@@ -394,6 +395,7 @@ public partial class NotchWindow : Window
     {
         var previous = _mode;
         _mode = mode;
+        if (mode != Mode.Expanded) CancelTabDrag();
 
         if (mode == Mode.Expanded)
         {
@@ -1294,7 +1296,7 @@ public partial class NotchWindow : Window
         {
             if (Math.Abs(x - _dragStartX.Value) < 5) return;
             _dragging = true;
-            TabBar.CaptureMouse();
+            if (!TabBar.CaptureMouse()) { _dragging = false; _dragStartX = null; return; }
         }
         double max = VisibleTabs.Length * TabW;
         double l = Math.Clamp(x - TabW / 2, -4, max - TabW + 4);
@@ -1307,13 +1309,23 @@ public partial class NotchWindow : Window
         e.Handled = true;
     }
 
-    private void TabBar_Up(object sender, MouseButtonEventArgs e)
+    /// <summary>The drag ended some other way (the island closed, capture was taken): settle on the current tab.</summary>
+    private void CancelTabDrag()
     {
         _dragStartX = null;
         if (!_dragging) return;
         _dragging = false;
+        if (TabBar.IsMouseCaptured) TabBar.ReleaseMouseCapture();
+        MoveTabDrop();
+    }
+
+    private void TabBar_Up(object sender, MouseButtonEventArgs e)
+    {
+        _dragStartX = null;
+        if (!_dragging) { if (TabBar.IsMouseCaptured) TabBar.ReleaseMouseCapture(); return; }
+        _dragging = false;
         double x = e.GetPosition(TabIcons).X;
-        TabBar.ReleaseMouseCapture();
+        if (TabBar.IsMouseCaptured) TabBar.ReleaseMouseCapture();
         e.Handled = true;
         var visible = VisibleTabs;
         int slot = (int)Math.Clamp(Math.Floor(x / TabW), 0, visible.Length - 1);
@@ -2519,20 +2531,45 @@ public partial class NotchWindow : Window
     }
 
     private DispatcherTimer? _updateTimer;
+    private UpdateService.Release? _pendingUpdate;
 
-    /// <summary>A minute after start, then every six hours: ask GitHub for a newer release and announce it once.</summary>
+    /// <summary>
+    /// A minute after start, then every six hours: ask GitHub for a newer release. An installed copy
+    /// updates itself the next time the island is idle; otherwise the new version is announced once.
+    /// </summary>
     private void StartUpdateChecks()
     {
         UpdateService.CleanUp();
+        string now = UpdateService.Current.ToString(3);
+        if (_settings.LastVersion != now)
+        {
+            bool updated = _settings.LastVersion.Length > 0;
+            _settings.LastVersion = now;
+            _settings.Commit();
+            if (updated)
+            {
+                var hello = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+                hello.Tick += (_, _) => { hello.Stop(); ShowPeek(GCheck, $"Crest updated to {now}", width: 300, ms: 3000); };
+                hello.Start();
+            }
+        }
+
         _updateTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
         _updateTimer.Tick += async (_, _) =>
         {
             _updateTimer.Interval = TimeSpan.FromHours(6);
+            if (_pendingUpdate != null) { InstallQuietly(); return; }
             if (!_settings.AutoUpdateCheck) return;
             try
             {
                 var r = await UpdateService.CheckAsync();
                 if (r == null) return;
+                if (_settings.AutoInstallUpdates && UpdateService.IsInstalledCopy)
+                {
+                    _pendingUpdate = r;
+                    InstallQuietly();
+                    return;
+                }
                 string v = r.Version.ToString(3);
                 if (_settings.AnnouncedUpdate == v) return;
                 _settings.AnnouncedUpdate = v;
@@ -2543,6 +2580,44 @@ public partial class NotchWindow : Window
             catch (Exception ex) { App.Log(ex); }
         };
         _updateTimer.Start();
+    }
+
+    private bool _installingUpdate;
+
+    /// <summary>
+    /// Installs the waiting update, but only while you aren't using Crest: the island closed, no
+    /// Settings window, no call. Otherwise it tries again in two minutes.
+    /// </summary>
+    private async void InstallQuietly()
+    {
+        var r = _pendingUpdate;
+        if (r == null || _installingUpdate || _updateTimer == null) return;
+        if (!_settings.AutoInstallUpdates) { _pendingUpdate = null; return; }
+        bool busy = _mode == Mode.Expanded || _moving || _settingsWindow != null || _privacy?.MicInUse == true
+                    || Mouse.LeftButton == MouseButtonState.Pressed;
+        if (busy)
+        {
+            _updateTimer.Interval = TimeSpan.FromMinutes(2);
+            return;
+        }
+        _installingUpdate = true;
+        try
+        {
+            await UpdateService.InstallAsync(r, silent: true);
+            // Setup closes this copy and starts the new one.
+        }
+        catch (Exception ex)
+        {
+            _installingUpdate = false;
+            _pendingUpdate = null;
+            if (ex is not (System.Net.Http.HttpRequestException or System.Threading.Tasks.TaskCanceledException)) App.Log(ex);
+            // Couldn't do it quietly: say so once, and leave the choice to you.
+            string v = r.Version.ToString(3);
+            if (_settings.AnnouncedUpdate == v) return;
+            _settings.AnnouncedUpdate = v;
+            _settings.Commit();
+            ShowPeek(GCheck, $"Crest {v} is available", "Install it in Settings › About", width: 340, ms: 4000);
+        }
     }
 
     private void Quit_Click(object sender, RoutedEventArgs e) => Quit();

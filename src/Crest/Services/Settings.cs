@@ -68,7 +68,7 @@ public sealed class Settings
 
     // ── Music ──
     /// <summary>App names (spotify, vlc...) or website domains (open.spotify.com, youtube.com).</summary>
-    public List<string> MediaSources { get; set; } = new() { "spotify", "open.spotify.com" };
+    public List<string> MediaSources { get; set; } = new() { "spotify", "open.spotify.com", "applemusic", "itunes", "music.apple.com" };
     public bool AnyMediaSource { get; set; }
     /// <summary>How long a paused song stays on the closed island. 0 hides it at once.</summary>
     public double PausedLingerMinutes { get; set; } = 10;
@@ -170,6 +170,10 @@ public sealed class Settings
     public bool AutoUpdateCheck { get; set; } = true;
     /// <summary>The newest version already announced in a peek, so each release is announced once.</summary>
     public string AnnouncedUpdate { get; set; } = "";
+    /// <summary>Install new versions by themselves, while the island isn't in use.</summary>
+    public bool AutoInstallUpdates { get; set; } = true;
+    /// <summary>The version that ran last, so Crest can say when it has been updated.</summary>
+    public string LastVersion { get; set; } = "";
 
     public event Action? Changed;
 

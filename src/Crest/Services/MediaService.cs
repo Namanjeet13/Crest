@@ -67,7 +67,7 @@ public sealed class MediaService
         }
     }
 
-    // ───── source filter: Spotify only by default; apps and websites can be added ─────
+    // ───── source filter: Spotify and Apple Music by default; apps and websites can be added ─────
 
     private readonly Settings _settings;
     private readonly Dictionary<string, bool> _domainVerdicts = new();
@@ -415,6 +415,9 @@ public sealed class MediaService
     private static string PrettySource(string id)
     {
         if (string.IsNullOrEmpty(id)) return "";
+        // Apple's app reports itself as "AppleInc.AppleMusicWin_…!App".
+        if (id.Contains("applemusic", StringComparison.OrdinalIgnoreCase)) return "Apple Music";
+        if (id.Contains("itunes", StringComparison.OrdinalIgnoreCase)) return "iTunes";
         string s = id;
         int bang = s.LastIndexOf('!');
         if (bang >= 0) s = s[(bang + 1)..];
@@ -544,4 +547,17 @@ public sealed class MediaService
         }
         catch (Exception ex) { App.Log(ex); }
     }
+}
+
+/// <summary>The music services Settings offers as switches. Each one is a set of entries in <see cref="Settings.MediaSources"/>.</summary>
+public sealed record MusicPreset(string Name, string Sub, string Color, string[] Entries)
+{
+    public static readonly MusicPreset[] All =
+    {
+        new("Spotify", "The app and open.spotify.com.", "#1DB954", new[] { "spotify", "open.spotify.com" }),
+        new("Apple Music", "The app, iTunes and music.apple.com.", "#FA2D48", new[] { "applemusic", "itunes", "music.apple.com" }),
+        new("YouTube", "YouTube and YouTube Music in any browser, videos too.", "#FF0033", new[] { "youtube.com" }),
+    };
+
+    public static bool IsPreset(string entry) => Array.Exists(All, p => Array.IndexOf(p.Entries, entry) >= 0);
 }

@@ -28,10 +28,12 @@ Windows SmartScreen may warn you because the installer isn't code-signed. Choose
 
 To remove Crest, go to **Settings › Apps › Installed apps › Crest › Uninstall**.
 
-## What's new in 1.0.2
+## What's new
 
 - **Widgets on the closed island**: clock, date, battery, CPU, memory, network speed, countdown, day progress, uptime and custom text, each with its own options.
 - **Redesigned settings**: fewer, clearer pages with search, plainer wording and a slim scroll bar.
+- **Music services you can switch on**: Spotify, Apple Music and YouTube, plus any other app or website you add. *(1.0.3)*
+- **Automatic updates**, installed quietly while you aren't using the island. *(1.0.3)*
 - **Smoother animations**: set how fast the island opens and closes in milliseconds, and the stutter is gone.
 - **Hold Esc in fullscreen**, even in a game, to bring the island back and free the pointer while you hold it.
 - **Live liquid glass** instead of captured frames, with a softer blend into the frost.
@@ -73,7 +75,7 @@ To remove Crest, go to **Settings › Apps › Installed apps › Crest › Unin
 - **Widgets on the closed island.** Clock, date, battery, CPU, memory, network speed, a countdown, day progress, uptime or your own text, on either side of the notch. Each one has its own options.
 - **Liquid glass.** The open island shows what's behind it live, through a glass edge that blends softly into the frost.
 - **Pixel pet.** It blinks, yawns and curls up asleep when you're away, and shows hearts when you rest the pointer on it. It hides for music, calls and fullscreen.
-- **Updates itself.** When a new version is out, the island tells you. Install it from Settings › About, and Crest checks the download, updates and reopens.
+- **Updates itself.** New versions install quietly while you aren't using the island, and Crest reopens on its own. Prefer to choose? Turn off automatic installs in Settings › About and install from there.
 - **Settings.** Shape, size, how fast it opens and closes (in milliseconds), hide until hover, hide in fullscreen (hold Esc to bring it back, even in games), start with Windows, widgets, visualizer, peeks, Discord and pet. Search finds any setting by name.
 
 ### Keyboard shortcuts
@@ -93,7 +95,7 @@ Crest runs entirely on your PC. It has no account, telemetry, analytics or ads. 
 
 - Settings and clipboard history are stored in `%AppData%\Crest`. Clipboard history is encrypted so only your Windows account can read it.
 - Media info comes from Windows' own media controls. Mic and camera activity comes from Windows' privacy records, which Crest only reads.
-- Updates are only installed when you choose to, and only if the download's SHA-256 matches the checksum GitHub publishes for that release.
+- An update is only installed if the download's SHA-256 matches the checksum GitHub publishes for that release. Automatic installs can be turned off in Settings › About.
 - Discord controls work by pressing Discord's own buttons through Windows UI Automation. Crest never reads your messages or touches your login.
 
 ## Build from source

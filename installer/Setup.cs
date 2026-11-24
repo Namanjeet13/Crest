@@ -31,7 +31,7 @@ namespace CrestSetup
 {
     internal static class Info
     {
-        public const string Version = "1.0.2";
+        public const string Version = "1.0.3";
         public const string Name = "Crest";
         public const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Crest";
         public const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -58,9 +58,11 @@ namespace CrestSetup
             // "/update" comes from Crest's own updater: keep the existing choices, install without asking,
             // and open Crest again when done. If anything fails, the normal window shows the error.
             bool update = Array.Exists(args, a => a.Equals("/update", StringComparison.OrdinalIgnoreCase));
+            // "/silent" (with /update): no window at all unless something goes wrong.
+            bool silent = update && Array.Exists(args, a => a.Equals("/silent", StringComparison.OrdinalIgnoreCase));
             var app = new Application();
             app.ShutdownMode = ShutdownMode.OnMainWindowClose;
-            app.Run(new SetupWindow(update));
+            app.Run(new SetupWindow(update, silent));
         }
     }
 
@@ -78,9 +80,12 @@ namespace CrestSetup
         private bool _busy;
         private readonly bool _update;
 
-        public SetupWindow(bool update)
+        private readonly bool _silent;
+
+        public SetupWindow(bool update, bool silent = false)
         {
             _update = update;
+            _silent = silent;
             Title = "Install Crest";
             Width = 520; SizeToContent = SizeToContent.Height;
             ResizeMode = ResizeMode.NoResize;
@@ -154,6 +159,15 @@ namespace CrestSetup
                     _startup.IsChecked = run != null && run.GetValue("Crest") != null;
                 Title = "Updating Crest";
                 ContentRendered += delegate { Install(); };
+                if (silent)
+                {
+                    // Off screen and out of the taskbar; it only comes forward if the update fails.
+                    ShowInTaskbar = false;
+                    ShowActivated = false;
+                    WindowStartupLocation = WindowStartupLocation.Manual;
+                    Left = -32000;
+                    Top = -32000;
+                }
             }
 
             Content = root;
@@ -287,6 +301,13 @@ namespace CrestSetup
             _bar.Visibility = Visibility.Collapsed;
             if (error != null)
             {
+                if (_silent)
+                {
+                    ShowInTaskbar = true;
+                    Left = (SystemParameters.WorkArea.Width - ActualWidth) / 2;
+                    Top = (SystemParameters.WorkArea.Height - ActualHeight) / 2;
+                    Activate();
+                }
                 _title.Text = "Crest could not be installed";
                 _text.Text = error;
                 _options.IsEnabled = true;

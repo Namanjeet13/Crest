@@ -29,6 +29,24 @@ public static class UpdateService
     /// <summary>The newer release found by the last check, or null.</summary>
     public static Release? Available { get; private set; }
     public static DateTime LastChecked { get; private set; }
+
+    /// <summary>
+    /// True when this copy runs from the folder Setup installs to. A copy built from source or run from
+    /// anywhere else is never replaced by itself: installing would put a second copy on the PC.
+    /// </summary>
+    public static bool IsInstalledCopy
+    {
+        get
+        {
+            try
+            {
+                string here = Path.GetFullPath(AppContext.BaseDirectory).TrimEnd('\\');
+                string setup = Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Crest")).TrimEnd('\\');
+                return here.Equals(setup, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+    }
     public static event Action? Changed;
 
     private static readonly HttpClient Http = CreateClient();
@@ -103,7 +121,7 @@ public static class UpdateService
     /// Downloads the installer, checks its size and SHA-256, then runs it in update mode. The installer
     /// closes Crest, replaces it with the same choices (shortcuts, start with Windows) and opens it again.
     /// </summary>
-    public static async Task InstallAsync(Release r, IProgress<double>? progress = null, CancellationToken ct = default)
+    public static async Task InstallAsync(Release r, IProgress<double>? progress = null, CancellationToken ct = default, bool silent = false)
     {
         string dir = Path.Combine(Path.GetTempPath(), "Crest-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
@@ -133,7 +151,7 @@ public static class UpdateService
                 if (!CryptographicOperations.FixedTimeEquals(System.Text.Encoding.ASCII.GetBytes(got), System.Text.Encoding.ASCII.GetBytes(r.Sha256)))
                     throw new InvalidOperationException("The download's checksum doesn't match the release. Nothing was installed.");
             }
-            Process.Start(new ProcessStartInfo(file, "/update") { UseShellExecute = false, WorkingDirectory = dir });
+            Process.Start(new ProcessStartInfo(file, silent ? "/update /silent" : "/update") { UseShellExecute = false, WorkingDirectory = dir });
         }
         catch
         {
