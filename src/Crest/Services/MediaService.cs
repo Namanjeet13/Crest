@@ -246,6 +246,8 @@ public sealed class MediaService
             ReadPlayback();
             ReadTimeline();
             Changed?.Invoke();
+            // Still no cover: the app may add it on play or pause without saying so, so ask again.
+            if (Art == null && Title.Length > 0) { _artTries = 0; _ = RefreshAsync(); }
         });
 
     private void OnTimeline(GlobalSystemMediaTransportControlsSession s, TimelinePropertiesChangedEventArgs e)
@@ -330,15 +332,26 @@ public sealed class MediaService
             bool newTrack = key != _trackKey && Title.Length > 0;
             _trackKey = key;
 
-            if (newTrack || Art == null)
+            if (newTrack) { _artTries = 0; _artFound = false; }
+            if (newTrack || Art == null || _artFound)
             {
-                Art = null;
+                if (!_artFound) Art = null;
                 if (props.Thumbnail != null)
                 {
                     var art = await LoadArtAsync(props.Thumbnail);
                     if (token != _loadToken) return;
-                    Art = art;
-                    if (art != null) ArtColor = DominantColor(art);
+                    // The app's own cover always wins over one found online.
+                    if (art != null) { Art = art; _artFound = false; ArtColor = DominantColor(art); }
+                }
+                // Apps often name the song before its cover is ready, and then never say when it is:
+                // keep asking for a while instead of playing the whole song without art.
+                if (Art == null && Title.Length > 0) RetryArt();
+                // Still nothing after a couple of seconds: look the song up online.
+                if (Art == null && Title.Length > 0 && _artTries >= 3 && _settings.FindMissingArt)
+                {
+                    var found = await ArtLookup.FindAsync(Title, Artist);
+                    if (token != _loadToken) return;
+                    if (found != null && Art == null) { Art = found; _artFound = true; ArtColor = DominantColor(found); }
                 }
             }
 
@@ -349,6 +362,30 @@ public sealed class MediaService
         {
             App.Log(ex);
         }
+    }
+
+    private static readonly double[] ArtRetrySeconds = { 0.5, 1, 2, 3, 5, 8, 12, 20, 30, 45 };
+    private int _artTries;
+    /// <summary>The cover on show was found online, so the app's own is still welcome if it turns up.</summary>
+    private bool _artFound;
+    private DispatcherTimer? _artRetry;
+
+    /// <summary>Asks again for the cover of the current song, sooner at first and then less often (about 2 minutes in all).</summary>
+    private void RetryArt()
+    {
+        if (_artTries >= ArtRetrySeconds.Length) return;
+        if (_artRetry == null)
+        {
+            _artRetry = new DispatcherTimer(DispatcherPriority.Background, _ui);
+            _artRetry.Tick += (_, _) =>
+            {
+                _artRetry.Stop();
+                if (Art == null && _session != null) _ = RefreshAsync();
+            };
+        }
+        _artRetry.Stop();
+        _artRetry.Interval = TimeSpan.FromSeconds(ArtRetrySeconds[_artTries++]);
+        _artRetry.Start();
     }
 
     private static async Task<BitmapSource?> LoadArtAsync(Windows.Storage.Streams.IRandomAccessStreamReference reference)
@@ -436,56 +473,94 @@ public sealed class MediaService
         };
     }
 
-    public bool StartingSpotify { get; private set; }
+    /// <summary>True while Play is opening a music app; <see cref="StartingName"/> says which.</summary>
+    public bool Starting { get; private set; }
+    public string StartingName { get; private set; } = "";
 
-    /// <summary>
-    /// Nothing is playing: open Spotify out of sight and resume whatever it had last.
-    /// True once Spotify is playing.
-    /// </summary>
-    public async Task<bool> ResumeSpotifyAsync()
+    /// <summary>The music services Play can open when nothing is playing.</summary>
+    public static readonly string[] PlayServices = { "Spotify", "Apple Music", "YouTube Music", "Your own" };
+
+    private const string AppleMusicFamily = "AppleInc.AppleMusicWin_nzyj5cx40ttqa";
+    private static bool? _appleMusic;
+
+    /// <summary>Apple's Microsoft Store app.</summary>
+    public static bool AppleMusicInstalled => _appleMusic ??= FindAppleMusic();
+
+    private static bool FindAppleMusic()
     {
-        if (StartingSpotify || _manager == null) return false;
-        StartingSpotify = true;
-        IntPtr focus = SpotifyStarter.Foreground;
         try
         {
-            bool launched = false;
-            if (!SpotifyStarter.IsRunning)
+            foreach (var _ in new Windows.Management.Deployment.PackageManager().FindPackagesForUser("", AppleMusicFamily)) return true;
+        }
+        catch { }
+        return false;
+    }
+
+    private static string? ITunesPath()
+    {
+        foreach (var root in new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 })
+        {
+            string p = Path.Combine(Environment.GetFolderPath(root), "iTunes", "iTunes.exe");
+            if (File.Exists(p)) return p;
+        }
+        return null;
+    }
+
+    /// <summary>Whether Play can open <paramref name="service"/> at all.</summary>
+    public static bool CanStart(string service, string custom) => service switch
+    {
+        "Spotify" => SpotifyStarter.IsInstalled,
+        "Your own" => custom.Trim().Length > 0,
+        _ => true, // Apple Music and YouTube Music fall back to their websites
+    };
+
+    /// <summary>The name Play shows while it opens <paramref name="service"/>.</summary>
+    public static string ServiceName(string service, string custom) =>
+        service == "Your own" ? QuickAction.ForTarget(custom).Label : service;
+
+    /// <summary>
+    /// Nothing is playing: open the chosen music app and resume whatever it had last.
+    /// Spotify opens out of sight; Apple Music opens its app (or iTunes, or its website);
+    /// YouTube Music and your own choice simply open. False if it couldn't be opened.
+    /// </summary>
+    public async Task<bool> ResumeAsync(string service, string custom)
+    {
+        if (Starting || _manager == null) return false;
+        Starting = true;
+        StartingName = ServiceName(service, custom);
+        Changed?.Invoke();
+        try
+        {
+            switch (service)
             {
-                if (!SpotifyStarter.Start()) return false;
-                launched = true;
-            }
-            // Spotify takes a few seconds to load the last song and show up in Windows' media controls.
-            var until = DateTime.Now.AddSeconds(30);
-            DateTime nextPress = DateTime.MinValue;
-            while (DateTime.Now < until)
-            {
-                if (launched) SpotifyStarter.PutAway(focus);
-                var s = FindSpotify();
-                if (s != null)
-                {
-                    var info = s.GetPlaybackInfo();
-                    if (info?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                case "Apple Music":
+                    if (AppleMusicInstalled)
                     {
-                        Rebind();
-                        if (launched)
-                        {
-                            // Its window can still pop up a moment after it starts.
-                            for (int i = 0; i < 6; i++) { await Task.Delay(500); SpotifyStarter.PutAway(focus); }
-                        }
+                        if (!Launcher.Open(@"shell:AppsFolder\" + AppleMusicFamily + "!App")) return false;
+                        await PlayWhenReady("applemusic", false, IntPtr.Zero);
+                        return true; // it is open, even if it had nothing to resume
+                    }
+                    if (ITunesPath() is string itunes)
+                    {
+                        if (!Launcher.Open(itunes)) return false;
+                        await PlayWhenReady("itunes", false, IntPtr.Zero);
                         return true;
                     }
-                    // Press as soon as the session appears and keep pressing: Spotify often ignores
-                    // the first few while it is still loading the last song. Play never toggles, so repeats are safe.
-                    if (DateTime.Now >= nextPress)
+                    return Launcher.Open("https://music.apple.com");
+                case "YouTube Music":
+                    return Launcher.Open("https://music.youtube.com");
+                case "Your own":
+                    return Launcher.Open(custom);
+                default:
+                    IntPtr focus = SpotifyStarter.Foreground;
+                    bool launched = false;
+                    if (!SpotifyStarter.IsRunning)
                     {
-                        try { await s.TryPlayAsync(); } catch { }
-                        nextPress = DateTime.Now.AddMilliseconds(150);
+                        if (!SpotifyStarter.Start()) return false;
+                        launched = true;
                     }
-                }
-                await Task.Delay(100);
+                    return await PlayWhenReady("spotify", launched, focus);
             }
-            return false;
         }
         catch (Exception ex)
         {
@@ -494,16 +569,55 @@ public sealed class MediaService
         }
         finally
         {
-            StartingSpotify = false;
+            Starting = false;
         }
     }
 
-    private GlobalSystemMediaTransportControlsSession? FindSpotify()
+    /// <summary>
+    /// Waits up to 30 s for the app's media session and presses Play until it plays.
+    /// <paramref name="putAway"/>: a Spotify that was just started is kept minimized meanwhile.
+    /// </summary>
+    private async Task<bool> PlayWhenReady(string key, bool putAway, IntPtr focus)
+    {
+        // Apps take a few seconds to load the last song and show up in Windows' media controls.
+        var until = DateTime.Now.AddSeconds(30);
+        DateTime nextPress = DateTime.MinValue;
+        while (DateTime.Now < until)
+        {
+            if (putAway) SpotifyStarter.PutAway(focus);
+            var s = FindSession(key);
+            if (s != null)
+            {
+                var info = s.GetPlaybackInfo();
+                if (info?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                {
+                    Rebind();
+                    if (putAway)
+                    {
+                        // Its window can still pop up a moment after it starts.
+                        for (int i = 0; i < 6; i++) { await Task.Delay(500); SpotifyStarter.PutAway(focus); }
+                    }
+                    return true;
+                }
+                // Press as soon as the session appears and keep pressing: apps often ignore
+                // the first few while they are still loading the last song. Play never toggles, so repeats are safe.
+                if (DateTime.Now >= nextPress)
+                {
+                    try { await s.TryPlayAsync(); } catch { }
+                    nextPress = DateTime.Now.AddMilliseconds(150);
+                }
+            }
+            await Task.Delay(100);
+        }
+        return false;
+    }
+
+    private GlobalSystemMediaTransportControlsSession? FindSession(string key)
     {
         try
         {
             foreach (var s in _manager!.GetSessions())
-                if ((s.SourceAppUserModelId ?? "").Contains("spotify", StringComparison.OrdinalIgnoreCase)) return s;
+                if ((s.SourceAppUserModelId ?? "").Contains(key, StringComparison.OrdinalIgnoreCase)) return s;
         }
         catch { }
         return null;

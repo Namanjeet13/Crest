@@ -14,6 +14,7 @@
   <img alt="Windows 10 2004+ and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4">
   <img alt=".NET 8" src="https://img.shields.io/badge/.NET-8-512BD4">
   <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-34C759"></a>
+  <a href="https://github.com/sponsors/Namanjeet13"><img alt="Sponsor" src="https://img.shields.io/badge/sponsor-%E2%9D%A4-EA4AAA"></a>
 </p>
 
 ---
@@ -30,6 +31,9 @@ To remove Crest, go to **Settings › Apps › Installed apps › Crest › Unin
 
 ## What's new
 
+- **Your own buttons and shortcuts**: choose what the two buttons on the Controls tab do (Snip, Colour, Calculator, Files, Task Manager, Lock, Clipboard, or any app or website), and change any shortcut's keys. *(1.0.4)*
+- **Choose what Play opens** when nothing is playing: Spotify, Apple Music, YouTube Music or your own app or website. *(1.0.4)*
+- **Covers that always show**: Crest asks again when an app is slow to send the cover, and can find it online when the app leaves it out. *(1.0.4)*
 - **Widgets on the closed island**: clock, date, battery, CPU, memory, network speed, countdown, day progress, uptime and custom text, each with its own options.
 - **Redesigned settings**: fewer, clearer pages with search, plainer wording and a slim scroll bar.
 - **Music services you can switch on**: Spotify, Apple Music and YouTube, plus any other app or website you add. *(1.0.3)*
@@ -87,7 +91,7 @@ To remove Crest, go to **Settings › Apps › Installed apps › Crest › Unin
 | Ctrl+Alt+V | Clipboard history |
 | Ctrl+Alt+C | Pick the colour under the pointer |
 
-You can turn each shortcut off in Settings.
+These are the defaults. Change the keys, or turn a shortcut off, in Settings › Shortcuts.
 
 ## Privacy
 
@@ -130,6 +134,10 @@ installer/                Setup.exe and Uninstall.exe (one small C# file each)
 ## Contributing
 
 Bug reports, ideas and pull requests are all welcome. See the [roadmap](ROADMAP.md) for what's planned. To report a security problem, see [SECURITY.md](SECURITY.md).
+
+## Support Crest
+
+Crest is free, with no ads and no tracking, and it always will be. If it makes your PC nicer to use, you can [sponsor it on GitHub](https://github.com/sponsors/Namanjeet13). Every bit helps keep updates coming.
 
 ## Licence
 

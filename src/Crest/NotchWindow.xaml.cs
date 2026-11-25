@@ -338,11 +338,44 @@ public partial class NotchWindow : Window
     private void RegisterHotkeys()
     {
         for (int id = 1; id <= 4; id++) Native.UnregisterHotKey(_hwnd, id);
-        uint mods = Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT;
-        if (_settings.HotkeyMic) Native.RegisterHotKey(_hwnd, HkMic, mods, (uint)KeyInterop.VirtualKeyFromKey(Key.M));
-        if (_settings.HotkeyColor) Native.RegisterHotKey(_hwnd, HkColor, mods, (uint)KeyInterop.VirtualKeyFromKey(Key.C));
-        if (_settings.HotkeyClip) Native.RegisterHotKey(_hwnd, HkClip, mods, (uint)KeyInterop.VirtualKeyFromKey(Key.V));
-        if (_settings.HotkeyOpen) Native.RegisterHotKey(_hwnd, HkOpen, mods, (uint)KeyInterop.VirtualKeyFromKey(Key.N));
+        Register(HkMic, _settings.HotkeyMic, _settings.KeyMic, "Ctrl+Alt+M");
+        Register(HkColor, _settings.HotkeyColor, _settings.KeyColor, "Ctrl+Alt+C");
+        Register(HkClip, _settings.HotkeyClip, _settings.KeyClip, "Ctrl+Alt+V");
+        Register(HkOpen, _settings.HotkeyOpen, _settings.KeyOpen, "Ctrl+Alt+N");
+    }
+
+    /// <summary>Stops the shortcuts while Settings records new keys, so pressing one isn't swallowed.</summary>
+    public void PauseHotkeys(bool paused)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        if (paused) for (int id = 1; id <= 4; id++) Native.UnregisterHotKey(_hwnd, id);
+        else RegisterHotkeys();
+    }
+
+    /// <summary>Registers one shortcut from its keys as text; keys that can't be read fall back to the default.</summary>
+    private void Register(int id, bool on, string keys, string fallback)
+    {
+        if (!on) return;
+        if (!HotkeyText.TryParse(keys, out var m, out var k)) HotkeyText.TryParse(fallback, out m, out k);
+        uint mods = Native.MOD_NOREPEAT;
+        if (m.HasFlag(ModifierKeys.Control)) mods |= Native.MOD_CONTROL;
+        if (m.HasFlag(ModifierKeys.Alt)) mods |= Native.MOD_ALT;
+        if (m.HasFlag(ModifierKeys.Shift)) mods |= Native.MOD_SHIFT;
+        if (m.HasFlag(ModifierKeys.Windows)) mods |= Native.MOD_WIN;
+        Native.RegisterHotKey(_hwnd, id, mods, (uint)KeyInterop.VirtualKeyFromKey(k));
+    }
+
+    /// <summary>The shortcut keys as the island lists them: only the ones that are on.</summary>
+    private void UpdateHotkeyHint()
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        if (_settings.HotkeyOpen) parts.Add(HotkeyText.Normal(_settings.KeyOpen) + " open");
+        if (_settings.HotkeyMic) parts.Add(HotkeyText.Normal(_settings.KeyMic) + " mute mic");
+        if (_settings.HotkeyColor) parts.Add(HotkeyText.Normal(_settings.KeyColor) + " pick colour");
+        if (_settings.HotkeyClip) parts.Add(HotkeyText.Normal(_settings.KeyClip) + " clipboard");
+        HotkeyHint.Text = string.Join("  ·  ", parts);
+        HotkeyHint.Visibility = parts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        HeaderMic.ToolTip = "Mute microphone everywhere" + (_settings.HotkeyMic ? $" ({HotkeyText.Normal(_settings.KeyMic)})" : "");
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -1679,14 +1712,14 @@ public partial class NotchWindow : Window
         bool has = MusicVisible;
         HeroTitle.Text = has && _media!.Title.Length > 0 ? _media.Title : "Nothing playing";
         HeroArtist.Text = has ? (_media!.Artist.Length > 0 ? _media.Artist : _media.Source)
-                        : _media?.StartingSpotify == true ? "Opening Spotify…" : "Play something in any app";
+                        : _media?.Starting == true ? $"Opening {_media.StartingName}…" : "Play something in any app";
         HeroArtBrush.ImageSource = has ? _media!.Art : null;
         HeroArtImage.Visibility = has && _media!.Art != null ? Visibility.Visible : Visibility.Collapsed;
         HeroPlaceholder.Visibility = has && _media!.Art != null ? Visibility.Collapsed : Visibility.Visible;
         PlayIcon.Data = (Geometry)FindResource(has && _media!.IsPlaying ? "GeoPause" : "GeoPlay");
         BtnPrev.IsEnabled = BtnNext.IsEnabled = has;
-        // With nothing at all to resume, Play opens Spotify in the background and resumes its last song.
-        BtnPlay.IsEnabled = _media?.HasSession == true || (_media != null && SpotifyStarter.IsInstalled);
+        // With nothing at all to resume, Play opens the music app chosen in Settings and resumes its last song.
+        BtnPlay.IsEnabled = _media?.HasSession == true || (_media != null && MediaService.CanStart(_settings.PlayOpens, _settings.PlayTarget));
         Scrub.Visibility = has && _media!.Duration > TimeSpan.Zero ? Visibility.Visible : Visibility.Hidden;
         Scrub.Playing = has && _media!.IsPlaying;
         Scrub.Cursor = has && _media!.CanSeek ? Cursors.Hand : Cursors.Arrow;
@@ -1712,12 +1745,13 @@ public partial class NotchWindow : Window
     {
         if (_media == null) return;
         if (_media.HasSession) { _media.TogglePlay(); return; }
-        if (_media.StartingSpotify) return;
-        var start = _media.ResumeSpotifyAsync();
+        if (_media.Starting) return;
+        string service = _settings.PlayOpens, target = _settings.PlayTarget;
+        var start = _media.ResumeAsync(service, target);
         RefreshMedia();
         bool ok = await start;
         RefreshMedia();
-        if (!ok) ShowPeek(GWarn, "Couldn't start Spotify", width: 300);
+        if (!ok) ShowPeek(GWarn, $"Couldn't start {MediaService.ServiceName(service, target)}", width: 300);
     }
     private void Next_Click(object sender, RoutedEventArgs e) => _media.Next();
     private void Prev_Click(object sender, RoutedEventArgs e) => _media.Previous();
@@ -2009,6 +2043,48 @@ public partial class NotchWindow : Window
         if (on == null) OpenUri("ms-settings:bluetooth");
     }
 
+    /// <summary>Labels the two shortcut buttons on the Controls tab with what they're set to do.</summary>
+    private void ApplyQuickButtons()
+    {
+        void Paint(Button b, TextBlock icon, TextBlock text, string action, string target)
+        {
+            var a = QuickAction.Find(action);
+            var (label, glyph) = a.Name == QuickAction.Custom ? QuickAction.ForTarget(target) : (a.Label, a.Glyph);
+            icon.Text = glyph;
+            text.Text = label;
+            b.ToolTip = a.Name == QuickAction.Custom ? (target.Trim().Length > 0 ? target : "Choose what it opens in Settings › Shortcuts")
+                      : a.Name == "Colour" && _settings.HotkeyColor ? $"Pick a colour ({HotkeyText.Normal(_settings.KeyColor)})"
+                      : a.Name;
+        }
+        Paint(Quick1, Quick1Icon, Quick1Text, _settings.Button1, _settings.Button1Target);
+        Paint(Quick2, Quick2Icon, Quick2Text, _settings.Button2, _settings.Button2Target);
+    }
+
+    private void Quick_Click(object sender, RoutedEventArgs e)
+    {
+        bool first = sender == Quick1;
+        string action = first ? _settings.Button1 : _settings.Button2;
+        string target = first ? _settings.Button1Target : _settings.Button2Target;
+        switch (QuickAction.Find(action).Name)
+        {
+            case "Snip": Snip_Click(sender, e); break;
+            case "Colour": Picker_Click(sender, e); break;
+            case "Clipboard": TabClip.IsChecked = true; break;
+            case "Calculator": SetMode(Mode.Compact); OpenUri("calculator:"); break;
+            case "Files": SetMode(Mode.Compact); OpenUri("explorer.exe"); break;
+            case "Task Manager": SetMode(Mode.Compact); OpenUri("taskmgr.exe"); break;
+            case "Settings": SetMode(Mode.Compact); OpenUri("ms-settings:"); break;
+            case "Lock": SetMode(Mode.Compact); LockWorkStation(); break;
+            default:
+                if (target.Trim().Length == 0) { ShowPeek(GWarn, "Nothing chosen yet", "Pick an app or website in Settings › Shortcuts", width: 340); break; }
+                SetMode(Mode.Compact);
+                if (!Launcher.Open(target)) ShowPeek(GWarn, "Couldn't open " + QuickAction.ForTarget(target).Label, width: 300);
+                break;
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool LockWorkStation();
+
     private void Snip_Click(object sender, RoutedEventArgs e)
     {
         SetMode(Mode.Compact);
@@ -2024,7 +2100,7 @@ public partial class NotchWindow : Window
     private void Picker_Click(object sender, RoutedEventArgs e)
     {
         SetMode(Mode.Compact);
-        ShowPeek(GColor, "Point at a colour", "Press Ctrl+Alt+C to pick it", width: 340, ms: 2200);
+        ShowPeek(GColor, "Point at a colour", _settings.HotkeyColor ? $"Press {HotkeyText.Normal(_settings.KeyColor)} to pick it" : "Turn on its shortcut in Settings › Shortcuts", width: 340, ms: 2200);
     }
 
     private void PickColor()
@@ -2276,7 +2352,11 @@ public partial class NotchWindow : Window
         if (_escFocus != IntPtr.Zero) { UpdateEscWatch(); return; } // Crest has the focus for now: the game is still there
         bool fullscreen = false;
         if (_settings.HideInFullscreen && Native.SHQueryUserNotificationState(out int state) == 0)
-            fullscreen = state is Native.QUNS_BUSY or Native.QUNS_RUNNING_D3D_FULL_SCREEN or Native.QUNS_PRESENTATION_MODE;
+            // Windows sometimes says "busy" for the desktop or the Settings app too: only hide when the
+            // window in front really covers the whole screen (presentation mode is always trusted).
+            fullscreen = state == Native.QUNS_PRESENTATION_MODE
+                         || (state is Native.QUNS_BUSY or Native.QUNS_RUNNING_D3D_FULL_SCREEN
+                             && (Native.GetForegroundWindow() == _hwnd ? _fullscreen : Native.ForegroundFillsScreen(_hwnd)));
 
         _fullscreen = fullscreen;
         if (fullscreen && !_hiddenForFullscreen && _mode != Mode.Expanded)
@@ -2496,6 +2576,8 @@ public partial class NotchWindow : Window
             UpdateGlassLook();
 
             if (_hwnd != IntPtr.Zero) RegisterHotkeys();
+            UpdateHotkeyHint();
+            ApplyQuickButtons();
             if (_media != null)
             {
                 _media.Reconsider();
@@ -2523,7 +2605,8 @@ public partial class NotchWindow : Window
         if (_settingsWindow == null)
         {
             _settingsWindow = new SettingsWindow(_settings);
-            _settingsWindow.Closed += (_, _) => { _settingsWindow = null; ScheduleTrim(2); };
+            _settingsWindow.Closed += (_, _) => { _settingsWindow = null; PauseHotkeys(false); ScheduleTrim(2); };
+            _settingsWindow.RecordingKeys += PauseHotkeys;
             _settingsWindow.Show();
         }
         if (_settingsWindow.WindowState == WindowState.Minimized) _settingsWindow.WindowState = WindowState.Normal;

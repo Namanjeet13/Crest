@@ -75,6 +75,8 @@ public sealed class Settings
     public bool ShowArtInCompact { get; set; } = true;
     public bool ShowArtistInCompact { get; set; } = true;
     public bool ArtOpensSource { get; set; } = true;
+    /// <summary>When the music app gives no cover, find it online by the song's title and artist.</summary>
+    public bool FindMissingArt { get; set; } = true;
     public bool TrackPeek { get; set; } = true;
     public double TrackPeekSeconds { get; set; } = 2.6;
     public bool ShowTimes { get; set; } = true;
@@ -165,6 +167,21 @@ public sealed class Settings
     public bool HotkeyMic { get; set; } = true;
     public bool HotkeyColor { get; set; } = true;
     public bool HotkeyClip { get; set; } = true;
+    /// <summary>The keys for each shortcut, written like "Ctrl+Alt+N".</summary>
+    public string KeyOpen { get; set; } = "Ctrl+Alt+N";
+    public string KeyMic { get; set; } = "Ctrl+Alt+M";
+    public string KeyColor { get; set; } = "Ctrl+Alt+C";
+    public string KeyClip { get; set; } = "Ctrl+Alt+V";
+
+    /// <summary>The two buttons on the Controls tab (names from QuickAction.All), and the app or website for "Your own".</summary>
+    public string Button1 { get; set; } = "Snip";
+    public string Button2 { get; set; } = "Colour";
+    public string Button1Target { get; set; } = "";
+    public string Button2Target { get; set; } = "";
+
+    /// <summary>What Play opens while nothing is playing: "Spotify", "Apple Music", "YouTube Music" or "Your own" (<see cref="PlayTarget"/>).</summary>
+    public string PlayOpens { get; set; } = "Spotify";
+    public string PlayTarget { get; set; } = "";
 
     // ── Updates ──
     public bool AutoUpdateCheck { get; set; } = true;

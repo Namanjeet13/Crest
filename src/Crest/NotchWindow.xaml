@@ -284,7 +284,7 @@
                                 <TextBlock x:Name="HeaderBattery" FontSize="11.5" FontWeight="Medium" Foreground="{StaticResource FgDim}" VerticalAlignment="Center" Margin="0,0,10,0" />
                                 <TextBlock x:Name="ClockText" Typography.NumeralAlignment="Tabular" FontFamily="{StaticResource DisplayFont}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,4,0" Text="00:00" />
                                 <Button x:Name="HeaderMic" Style="{StaticResource IconButton}" Width="28" Height="28" FontSize="13"
-                                        Content="&#xE720;" ToolTip="Mute microphone everywhere (Ctrl+Alt+M)" Click="Mic_Click" />
+                                        Content="&#xE720;" ToolTip="Mute microphone everywhere" Click="Mic_Click" />
                             </StackPanel>
                         </Grid>
 
@@ -392,16 +392,17 @@
                                     <RowDefinition Height="10" />
                                     <RowDefinition />
                                 </Grid.RowDefinitions>
-                                <Button Style="{StaticResource SquareButton}" Click="Snip_Click" ToolTip="Screen snip">
+                                <!-- The two shortcut buttons: what they do is chosen in Settings > Shortcuts -->
+                                <Button x:Name="Quick1" Style="{StaticResource SquareButton}" Click="Quick_Click">
                                     <StackPanel>
-                                        <TextBlock Style="{StaticResource Icon}" Text="&#xE7A8;" FontSize="17" HorizontalAlignment="Center" />
-                                        <TextBlock Text="Snip" FontFamily="{StaticResource UiFont}" FontSize="10.5" FontWeight="Medium" Margin="0,5,0,0" HorizontalAlignment="Center" />
+                                        <TextBlock x:Name="Quick1Icon" Style="{StaticResource Icon}" Text="&#xE7A8;" FontSize="17" HorizontalAlignment="Center" />
+                                        <TextBlock x:Name="Quick1Text" Text="Snip" FontFamily="{StaticResource UiFont}" FontSize="10.5" FontWeight="Medium" Margin="0,5,0,0" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Button>
-                                <Button Grid.Row="2" Style="{StaticResource SquareButton}" Click="Picker_Click" ToolTip="Ctrl+Alt+C">
+                                <Button x:Name="Quick2" Grid.Row="2" Style="{StaticResource SquareButton}" Click="Quick_Click">
                                     <StackPanel>
-                                        <TextBlock Style="{StaticResource Icon}" Text="&#xE790;" FontSize="17" HorizontalAlignment="Center" />
-                                        <TextBlock Text="Colour" FontFamily="{StaticResource UiFont}" FontSize="10.5" FontWeight="Medium" Margin="0,5,0,0" HorizontalAlignment="Center" />
+                                        <TextBlock x:Name="Quick2Icon" Style="{StaticResource Icon}" Text="&#xE790;" FontSize="17" HorizontalAlignment="Center" />
+                                        <TextBlock x:Name="Quick2Text" Text="Colour" FontFamily="{StaticResource UiFont}" FontSize="10.5" FontWeight="Medium" Margin="0,5,0,0" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Button>
                             </Grid>
@@ -526,7 +527,7 @@
                                 </StackPanel>
                             </Border>
                             <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Style="{StaticResource Caption}" FontSize="10" VerticalAlignment="Bottom" HorizontalAlignment="Center"
-                                       Foreground="{StaticResource FgFaint}"
+                                       Foreground="{StaticResource FgFaint}" x:Name="HotkeyHint"
                                        Text="Ctrl+Alt+N open  ·  Ctrl+Alt+M mute mic  ·  Ctrl+Alt+C pick colour  ·  Ctrl+Alt+V clipboard" />
                         </Grid>
                     </Grid>

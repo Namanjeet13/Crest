@@ -99,12 +99,12 @@ public sealed class SettingsWindow : Window
         Page("Pet", "A tiny pixel friend that lives on the idle island.", "#FF6482", "", Pet);
         Section("Music");
         Page("Now Playing", "What the island shows while a song is on.", "#FF375F", "", NowPlaying);
-        Page("Music Apps", "Which apps and websites can show music on the island.", "#30D158", "", Sources);
+        Page("Music Apps", "Which apps and websites can show music on the island, and what Play opens.", "#30D158", "", Sources);
         Page("Artwork & Colour", "The album art backdrop, accent colour and visualizer.", "#BF5AF2", "", Artwork);
         Section("Open island");
         Page("Tabs & Top Bar", "The tabs, the top bar and scrolling on the open island.", "#5E5CE6", "", OpenIsland);
         Page("Alerts", "Pop-ups for changes, the clipboard and Discord.", "#FF453A", "", Alerts);
-        Page("Shortcuts", "Keyboard shortcuts that work anywhere in Windows.", "#AC8E68", "", Shortcuts);
+        Page("Shortcuts", "The buttons on the Controls tab, and keyboard shortcuts that work anywhere in Windows.", "#AC8E68", "", Shortcuts);
         Section(null);
         Page("About", "Version, updates and where your settings live.", "#636366", "", About);
 
@@ -309,7 +309,9 @@ public sealed class SettingsWindow : Window
                 C("Times", () => _s.ShowTimes, v => _s.ShowTimes = v),
                 C("Volume slider", () => _s.MiniVolume, v => _s.MiniVolume = v))),
             Choice("Progress bar", new[] { "Apple", "Knob", "Glow", "Wave", "Line" }, () => _s.ScrubStyle, v => _s.ScrubStyle = v),
-            Toggle("Click the artwork to open the player", null, () => _s.ArtOpensSource, v => _s.ArtOpensSource = v));
+            Toggle("Click the artwork to open the player", null, () => _s.ArtOpensSource, v => _s.ArtOpensSource = v),
+            Toggle("Find missing covers online", "When the music app leaves the cover out, look it up by the song's title and artist. Only those two are sent, to Apple's iTunes search.",
+                () => _s.FindMissingArt, v => _s.FindMissingArt = v));
         Group("Songs",
             Row("Pop up new songs", Inline(If(_s.TrackPeek, Labeled("For", NumberCtl(0.5, 8, () => _s.TrackPeekSeconds, v => _s.TrackPeekSeconds = v, true)), Unit("s")),
                                            SwitchCtl(() => _s.TrackPeek, v => _s.TrackPeek = v, true)),
@@ -324,6 +326,7 @@ public sealed class SettingsWindow : Window
         _resets?.Add(() => _s.AnyMediaSource = Defaults.AnyMediaSource);
         Group(null,
             Toggle("Any app", "Anything Windows reports as playing.", () => _s.AnyMediaSource, v => _s.AnyMediaSource = v, resettable: false, reveal: true));
+        PlayButton();
         if (_s.AnyMediaSource) return;
 
         Group("Music services", MusicPreset.All.Select(p => (object)Toggle(p.Name, p.Sub,
@@ -498,29 +501,133 @@ public sealed class SettingsWindow : Window
             Toggle("Discord call controls", "Mute, deafen and leave calls from the island.", () => _s.DiscordControls, v => _s.DiscordControls = v));
     }
 
-    private void Shortcuts()
+    /// <summary>What Play does while nothing is playing.</summary>
+    private void PlayButton()
     {
-        Group(null,
-            Shortcut("N", "Open the island", () => _s.HotkeyOpen, v => _s.HotkeyOpen = v),
-            Shortcut("M", "Mute the microphone", () => _s.HotkeyMic, v => _s.HotkeyMic = v),
-            Shortcut("C", "Pick a colour from the screen", () => _s.HotkeyColor, v => _s.HotkeyColor = v),
-            Shortcut("V", "Clipboard history", () => _s.HotkeyClip, v => _s.HotkeyClip = v));
+        string p = _s.PlayOpens;
+        string? note = p switch
+        {
+            "Spotify" => SpotifyStarter.IsInstalled ? "Opens Spotify out of sight and resumes your last song." : "Spotify isn't installed on this PC.",
+            "Apple Music" => MediaService.AppleMusicInstalled ? "Opens the Apple Music app and resumes your last song."
+                             : "The Apple Music app isn't installed, so Play opens iTunes or music.apple.com.",
+            "YouTube Music" => "Opens music.youtube.com in your browser.",
+            _ => null,
+        };
+        var preset = MusicPreset.All.FirstOrDefault(m => p.StartsWith(m.Name));
+        bool hidden = !_s.AnyMediaSource && preset != null && !preset.Entries.Any(_s.MediaSources.Contains);
+        Group("Play button",
+            Row("When nothing is playing, Play opens", PickCtl(MediaService.PlayServices, () => _s.PlayOpens, v => _s.PlayOpens = v), null, "play button spotify apple music youtube"),
+            If(p == "Your own", Row("App or website", TextCtl(220, () => _s.PlayTarget, v => _s.PlayTarget = v),
+                "An app like vlc, a program's full path, or a website like soundcloud.com.")),
+            If(note != null, Note(note ?? "")),
+            If(hidden, Note($"Turn on {preset?.Name} under Music services so its songs show on the island.")));
     }
 
-    private UIElement Shortcut(string key, string label, Func<bool> get, Action<bool> set)
+    private void Shortcuts()
+    {
+        Group("Buttons on the Controls tab",
+            QuickButton("Top button", () => _s.Button1, v => _s.Button1 = v, () => _s.Button1Target, v => _s.Button1Target = v),
+            QuickButton("Bottom button", () => _s.Button2, v => _s.Button2 = v, () => _s.Button2Target, v => _s.Button2Target = v));
+
+        string[] Others(Func<string> mine) => new Func<string>[] { () => _s.KeyOpen, () => _s.KeyMic, () => _s.KeyColor, () => _s.KeyClip }
+            .Where(f => f() != mine()).Select(f => HotkeyText.Normal(f())).ToArray();
+        Group("Keyboard shortcuts",
+            Shortcut("Open the island", () => _s.HotkeyOpen, v => _s.HotkeyOpen = v, () => _s.KeyOpen, v => _s.KeyOpen = v, () => Others(() => _s.KeyOpen)),
+            Shortcut("Mute the microphone", () => _s.HotkeyMic, v => _s.HotkeyMic = v, () => _s.KeyMic, v => _s.KeyMic = v, () => Others(() => _s.KeyMic)),
+            Shortcut("Pick a colour from the screen", () => _s.HotkeyColor, v => _s.HotkeyColor = v, () => _s.KeyColor, v => _s.KeyColor = v, () => Others(() => _s.KeyColor)),
+            Shortcut("Clipboard history", () => _s.HotkeyClip, v => _s.HotkeyClip = v, () => _s.KeyClip, v => _s.KeyClip = v, () => Others(() => _s.KeyClip)),
+            Note("Click the keys to change them, then press the new ones. Esc cancels."));
+    }
+
+    private List<UIElement> QuickButton(string label, Func<string> get, Action<string> set, Func<string> getTarget, Action<string> setTarget)
+    {
+        var panel = new List<UIElement>();
+        panel.Add(Row(label, PickCtl(QuickAction.All.Select(a => a.Name).ToArray(), get, set), null, "button snip colour calculator files task manager lock"));
+        if (QuickAction.Find(get()).Name == QuickAction.Custom)
+            panel.Add(Row("Opens", TextCtl(220, getTarget, setTarget), "An app like notepad, a program's full path, or a website like youtube.com."));
+        else Resettable(getTarget, setTarget);
+        return panel;
+    }
+
+    /// <summary>Raised while a shortcut is being recorded, so the island lets go of its shortcuts meanwhile.</summary>
+    public event Action<bool>? RecordingKeys;
+
+    private UIElement Shortcut(string label, Func<bool> get, Action<bool> set, Func<string> getKeys, Action<string> setKeys, Func<string[]> others)
     {
         var row = (DockPanel)Toggle(label, null, get, set);
-        var keys = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
-        foreach (var k in new[] { "Ctrl", "Alt", key })
-            keys.Children.Add(new Border
+        Resettable(getKeys, setKeys);
+        var keys = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var box = new Border
+        {
+            Child = keys, Focusable = true, FocusVisualStyle = null, Cursor = Cursors.Hand, Background = Brushes.Transparent,
+            CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent,
+            Padding = new Thickness(3, 2, 0, 2), Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "Click, then press the new keys",
+        };
+        void Chips(IEnumerable<string> parts)
+        {
+            keys.Children.Clear();
+            foreach (var k in parts)
+                keys.Children.Add(new Border
+                {
+                    Background = Field, BorderBrush = Hex("#3A3A3C"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5),
+                    Padding = new Thickness(6, 1, 6, 2), Margin = new Thickness(0, 0, 4, 0), MinWidth = 22,
+                    Child = new TextBlock { Text = k, FontSize = 11, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center }
+                });
+        }
+        void Say(string text, Brush brush)
+        {
+            keys.Children.Clear();
+            keys.Children.Add(new TextBlock { Text = text, FontSize = 11.5, Foreground = brush, Margin = new Thickness(4, 1, 6, 2) });
+        }
+        void ShowKeys() => Chips(HotkeyText.Normal(getKeys()).Split('+'));
+        ShowKeys();
+
+        bool recording = false;
+        void Stop()
+        {
+            if (!recording) return;
+            recording = false;
+            box.BorderBrush = Brushes.Transparent;
+            RecordingKeys?.Invoke(false);
+            ShowKeys();
+        }
+        box.MouseEnter += (_, _) => { if (!recording) box.Background = Hover; };
+        box.MouseLeave += (_, _) => box.Background = Brushes.Transparent;
+        box.MouseLeftButtonUp += (_, _) =>
+        {
+            if (recording) return;
+            recording = true;
+            box.Background = Brushes.Transparent;
+            box.BorderBrush = Blue;
+            Say("Press keys…", Blue);
+            RecordingKeys?.Invoke(true);
+            Keyboard.Focus(box);
+        };
+        box.LostKeyboardFocus += (_, _) => Stop();
+        box.PreviewKeyDown += (_, e) =>
+        {
+            if (!recording) return;
+            e.Handled = true;
+            var k = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (k == Key.Escape) { Stop(); return; }
+            var mods = Keyboard.Modifiers;
+            if (k is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin)
             {
-                Background = Field, BorderBrush = Hex("#3A3A3C"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5),
-                Padding = new Thickness(6, 1, 6, 2), Margin = new Thickness(0, 0, 4, 0), MinWidth = 22,
-                Child = new TextBlock { Text = k, FontSize = 11, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center }
-            });
-        DockPanel.SetDock(keys, Dock.Left);
-        row.Children.Insert(1, keys);
-        row.Tag = $"{label} ctrl alt {key} shortcut hotkey";
+                var held = HotkeyText.Format(mods, Key.None).TrimEnd('+').Replace("None", "");
+                if (held.Length > 0) Chips(held.Split('+', StringSplitOptions.RemoveEmptyEntries).Append("…")); else Say("Press keys…", Blue);
+                return;
+            }
+            if ((mods & (ModifierKeys.Control | ModifierKeys.Alt)) == 0) { Say("Hold Ctrl or Alt with it", Red); return; }
+            string v = HotkeyText.Format(mods, k);
+            if (others().Contains(v)) { Say(v + " is already used", Red); return; }
+            setKeys(v);
+            Commit();
+            Stop();
+        };
+        DockPanel.SetDock(box, Dock.Left);
+        row.Children.Insert(1, box);
+        row.Tag = $"{label} {getKeys()} shortcut hotkey keys";
         return row;
     }
 
@@ -537,7 +644,12 @@ public sealed class SettingsWindow : Window
                 () => _s.AutoUpdateCheck, v => _s.AutoUpdateCheck = v, reveal: true),
             If(_s.AutoUpdateCheck, Toggle("Install updates automatically", "Quietly, while you aren't using the island. Off: you choose when.",
                 () => _s.AutoInstallUpdates, v => _s.AutoInstallUpdates = v)));
-        Group(null, Note("Crest is free and open source at github.com/Namanjeet13/Crest."));
+        Group(null,
+            Row("Support Crest", Link("Sponsor", Blue, () =>
+            {
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://github.com/sponsors/Namanjeet13") { UseShellExecute = true })?.Dispose(); } catch { }
+            }), "Crest is free and open source. If you like it, you can chip in on GitHub."),
+            Note("Crest is free and open source at github.com/Namanjeet13/Crest."));
     }
 
     private static bool _updating;
@@ -942,6 +1054,27 @@ public sealed class SettingsWindow : Window
             sp.Children.Add(b);
         }
         return bar;
+    }
+
+    /// <summary>One of several pills, for a choice with more options than fit in a segmented bar.</summary>
+    private UIElement PickCtl(string[] options, Func<string> get, Action<string> set)
+    {
+        Resettable(get, set);
+        _kw.AddRange(options);
+        var wrap = new WrapPanel { MaxWidth = 380, HorizontalAlignment = HorizontalAlignment.Right };
+        foreach (var o in options)
+        {
+            bool on = string.Equals(get(), o, StringComparison.OrdinalIgnoreCase);
+            var b = new Border
+            {
+                CornerRadius = new CornerRadius(12), Padding = new Thickness(11, 4, 11, 5), Margin = new Thickness(6, 3, 0, 3), BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand, Background = on ? Hex("#330A84FF") : Field, BorderBrush = on ? Blue : Hex("#3A3A3C"),
+                Child = new TextBlock { Text = o, FontSize = 12, Foreground = on ? Fg : Hex("#C7C7CC") }
+            };
+            if (!on) b.MouseLeftButtonUp += (_, _) => { set(o); Commit(); Dispatcher.BeginInvoke(() => Show(_page)); };
+            wrap.Children.Add(b);
+        }
+        return wrap;
     }
 
     private UIElement Slider(string label, double min, double max, double step, string unit, Func<double> get, Action<double> set, string? sub = null) =>

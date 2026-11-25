@@ -11,7 +11,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Crest</AssemblyName>
     <RootNamespace>Crest</RootNamespace>
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
     <ApplicationIcon>Assets\Crest.ico</ApplicationIcon>
     <Company>Crest</Company>
     <Copyright>Crest contributors</Copyright>
